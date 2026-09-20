@@ -351,3 +351,56 @@ test('decodifica escapes RTF uniformes y usa textutil para estilos mixtos', { sk
     assert.equal((await readSlideModel(file)).elements[0].text?.content, expected);
   }
 });
+
+test('append conserva cues, grupos y campos desconocidos, respalda y clona la plantilla', async t => {
+  const { appendToPro } = await import('../src/pro');
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-append-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const targetPath = path.join(dir, 'Destino.pro');
+  const templatePath = path.join(dir, 'Plantilla.pro');
+  await buildPro({ name: 'Destino', slides, outPath: targetPath });
+  await buildPro({ name: 'Plantilla', slides: [slides[0]], outPath: templatePath });
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const P = root.lookupType('rv.data.Presentation'), C = root.lookupType('rv.data.Cue'), G = root.lookupType('rv.data.Presentation.CueGroup');
+  const original = decode(P, await readFile(targetPath));
+  for (const item of [original, original.cues[0], original.cueGroups[0]]) item.$unknowns = [protobuf.Writer.create().uint32(999 * 8 + 2).string('futuro').finish()];
+  const bytes = Buffer.from(P.encode(original).finish());
+  await writeFile(targetPath, bytes);
+  const template = decode(P, await readFile(templatePath));
+  template.cues[0].actions[0].slide.presentation.baseSlide.backgroundColor = { red: 0.25, alpha: 1 };
+  await writeFile(templatePath, P.encode(template).finish());
+  const result = await appendToPro({ targetPath, slides, group: 'Nuevo', templatePath, versionKey: 'LOCAL', backupDir: path.join(dir, 'backups') });
+  assert.equal(result.added, 2);
+  assert.deepEqual(await readFile(result.backup), bytes);
+  assert.match(path.basename(result.backup), /^Destino-\d{8}-\d{6}(?:-\d+)?\.pro$/);
+  const after = decode(P, await readFile(targetPath));
+  assert.equal(after.cues.length, 4);
+  assert.equal(after.cueGroups.length, 2);
+  assert.deepEqual(after.$unknowns, original.$unknowns);
+  original.cues.forEach((cue: protobuf.ReflectedMessage, i: number) => assert.deepEqual(C.encode(after.cues[i]).finish(), C.encode(cue).finish()));
+  original.cueGroups.forEach((group: protobuf.ReflectedMessage, i: number) => assert.deepEqual(G.encode(after.cueGroups[i]).finish(), G.encode(group).finish()));
+  assert.equal(after.cueGroups[1].group.name, 'Nuevo');
+  assert.deepEqual(after.cueGroups[1].cueIdentifiers.map((id: { string: string }) => id.string), after.cues.slice(2).map((cue: protobuf.ReflectedMessage) => cue.uuid.string));
+  assert.equal(after.cues[2].actions[0].slide.presentation.baseSlide.backgroundColor.red, template.cues[0].actions[0].slide.presentation.baseSlide.backgroundColor.red);
+  const second = await appendToPro({ targetPath, slides: [slides[0]], group: 'Sin plantilla', backupDir: path.join(dir, 'backups') });
+  assert.notEqual(second.backup, result.backup);
+  assert.equal(await readSlideCount(targetPath), 5);
+  assert.deepEqual(await readFile(result.backup), bytes);
+});
+
+test('append rechaza cambios concurrentes sin pisar el destino', async t => {
+  const { appendToPro } = await import('../src/pro');
+  const fs = await import('node:fs');
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-conflict-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const targetPath = path.join(dir, 'Destino.pro');
+  await buildPro({ name: 'Destino', slides, outPath: targetPath });
+  const write = fs.promises.writeFile;
+  t.mock.method(fs.promises, 'writeFile', async (...args: Parameters<typeof write>) => {
+    await write(...args);
+    if (String(args[0]).endsWith('.tmp')) await write(targetPath, 'Cambio externo');
+  });
+  await assert.rejects(appendToPro({ targetPath, slides, group: 'Nuevo', backupDir: path.join(dir, 'backups') }), /cambió/);
+  assert.equal(await readFile(targetPath, 'utf8'), 'Cambio externo');
+  assert(!(await fs.promises.readdir(dir)).some(name => name.endsWith('.tmp')));
+});

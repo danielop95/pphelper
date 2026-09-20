@@ -178,3 +178,14 @@ test('fetchVerses rechaza errores HTTP, contenido inválido e identificadores in
   await assert.rejects(fetchVerses(ref, 'test-bible', 'key', dir), /versículos|contenido/i);
   await assert.rejects(fetchVerses(ref, '../escape', 'key', dir), /identificador/i);
 });
+
+test('versículos agrupados conservan rangos al cortar y unir', () => {
+  const grouped = [{ book: 'GEN', chapter: 2, verse: 1, verseEnd: 3, text: 'Texto de un grupo.' },
+    { book: 'GEN', chapter: 2, verse: 4, verseEnd: 5, text: 'Otro grupo.' }];
+  assert.deepEqual(toSlides(grouped, 'Génesis', 100).map(s => s.label), ['Génesis 2:1-3', 'Génesis 2:4-5']);
+  assert.equal(toSlides(grouped, 'Génesis', { minChars: 40, maxChars: 100 })[0].label, 'Génesis 2:1-5');
+  const parts = toSlides(grouped.slice(0, 1), 'Génesis', 10);
+  assert.deepEqual(parts.map(s => s.label), ['Génesis 2:1-3a', 'Génesis 2:1-3b']);
+  assert.equal(mergeSlides(parts, 0)[0].label, 'Génesis 2:1-3b');
+  assert.equal(mergeSlides([{ label: 'Génesis 2:1-3', text: 'a' }, { label: 'Génesis 2:1-3', text: 'b' }], 0)[0].label, 'Génesis 2:1-3');
+});

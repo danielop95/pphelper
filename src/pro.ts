@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { readFileSync, renameSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as protobuf from 'protobufjs';
@@ -224,6 +225,45 @@ export async function buildPro(opts: {
   await mkdir(path.dirname(opts.outPath), { recursive: true });
   await writeFile(opts.outPath, bytes);
   return opts.outPath;
+}
+
+/** Conserva la presentación existente y añade un único grupo al final. */
+export async function appendToPro(opts: {
+  targetPath: string; slides: Slide[]; group: string; versionKey?: string; templatePath?: string; backupDir: string;
+}): Promise<{ backup: string; added: number }> {
+  const original = await readFile(opts.targetPath);
+  const before = await stat(opts.targetPath);
+  const root = await loadProtos();
+  const P = root.lookupType('rv.data.Presentation');
+  const source = decode(P, original);
+  const temporary = path.join(path.dirname(opts.targetPath), `.${randomUUID()}.tmp`);
+  try {
+    // buildPro is also the single source of slide validation and template cloning.
+    await buildPro({ ...opts, name: opts.group, outPath: temporary });
+    const added = decode(P, await readFile(temporary));
+    source.cues.push(...added.cues);
+    source.cueGroups.push(...added.cueGroups);
+    await writeFile(temporary, P.encode(source).finish(), { mode: before.mode });
+    await mkdir(opts.backupDir, { recursive: true });
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const name = `${path.basename(opts.targetPath, path.extname(opts.targetPath))}-${stamp}`;
+    let backup = '';
+    for (let n = 0; ; n++) {
+      backup = path.join(opts.backupDir, `${name}${n ? `-${n}` : ''}.pro`);
+      try { await writeFile(backup, original, { flag: 'wx', mode: 0o600 }); break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+    }
+    // ponytail: comprobación optimista; ProPresenter no ofrece un bloqueo cooperativo.
+    // Sin await entre la comprobación final y rename para no intercalar otros IPC.
+    const current = statSync(opts.targetPath);
+    if (current.ino !== before.ino || current.mtimeMs !== before.mtimeMs || !readFileSync(opts.targetPath).equals(original)) {
+      throw new Error('La presentación cambió mientras se añadían las diapositivas. Vuelve a intentarlo.');
+    }
+    renameSync(temporary, opts.targetPath);
+    return { backup, added: opts.slides.length };
+  } finally { await rm(temporary, { force: true }); }
 }
 
 export async function readSlideCount(filePath: string): Promise<number> {

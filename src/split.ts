@@ -47,7 +47,7 @@ export function toSlides(verses: Verse[], bookName: string, limits: Limits | num
   const items = verses.flatMap(verse => {
     const texts = parts(verse.text.trim(), maxChars);
     return texts.map((text, i) => ({
-      slide: { label: `${bookName} ${verse.chapter}:${verse.verse}${texts.length > 1 ? suffix(i) : ''}`, text },
+      slide: { label: `${bookName} ${verse.chapter}:${verse.verse}${verse.verseEnd ? `-${verse.verseEnd}` : ''}${texts.length > 1 ? suffix(i) : ''}`, text },
       first: verse, last: verse, split: texts.length > 1,
     }));
   });
@@ -55,7 +55,7 @@ export function toSlides(verses: Verse[], bookName: string, limits: Limits | num
     const left = items[i];
     const right = items[i + 1];
     return !left.split && !right.split && left.last.book === right.first.book &&
-      left.last.chapter === right.first.chapter && left.last.verse + 1 === right.first.verse &&
+      left.last.chapter === right.first.chapter && (left.last.verseEnd ?? left.last.verse) + 1 === right.first.verse &&
       left.slide.text.length + 1 + right.slide.text.length <= max;
   };
   const merge = (i: number) => items.splice(i, 2, {
