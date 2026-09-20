@@ -22,9 +22,22 @@ let generation = 0;
 let lookupGeneration = 0;
 let lastLookup: { verses: Verse[]; bookName: string; ref: string } | undefined;
 let stopWatching = () => {};
+let templateCache: ReturnType<typeof listTemplates> | undefined;
+function templates(): ReturnType<typeof listTemplates> {
+  if (!templateCache) {
+    const pending = (config.templateLibrary ? listTemplates(config.templateLibrary) : Promise.resolve([])).catch(error => {
+      if (templateCache === pending) templateCache = undefined;
+      throw error;
+    });
+    templateCache = pending;
+  }
+  return templateCache;
+}
 function watchTemplates(): void {
   stopWatching();
+  templateCache = undefined;
   stopWatching = config.templateLibrary ? watchDir(config.templateLibrary, () => {
+    templateCache = undefined;
     generation++; prepared = undefined;
     if (!window.isDestroyed()) window.webContents.send(IPC.templatesChanged);
   }) : () => {};
@@ -32,7 +45,7 @@ function watchTemplates(): void {
 async function templatePath(name: string): Promise<string | undefined> {
   if (typeof name !== 'string') throw new Error('Plantilla no reconocida.');
   if (!name) return undefined;
-  const item = (await listTemplates(config.templateLibrary || '')).find(item => item.name === name);
+  const item = (await templates()).find(item => item.name === name);
   if (!item) throw new Error('La plantilla ya no está en la biblioteca. Elige otra plantilla.');
   return item.path;
 }
@@ -129,11 +142,11 @@ app.whenReady().then(async () => {
     checkSender(event); await templatePath(template);
     return currentSlides(template);
   });
-  ipcMain.handle(IPC.templates, event => { checkSender(event); return config.templateLibrary ? listTemplates(config.templateLibrary) : []; });
+  ipcMain.handle(IPC.templates, event => { checkSender(event); return templates(); });
   ipcMain.handle(EXTRA_IPC.libraries, event => { checkSender(event); return listLibraries(); });
   ipcMain.handle(IPC.slideModel, async (event, file: string, slide?: { text: string; reference: string }) => {
     checkSender(event);
-    if (typeof file !== 'string' || !(await listTemplates(config.templateLibrary || '')).some(item => item.path === file)) throw new Error('Plantilla no reconocida.');
+    if (typeof file !== 'string' || !(await templates()).some(item => item.path === file)) throw new Error('Plantilla no reconocida.');
     if (slide && (typeof slide.text !== 'string' || typeof slide.reference !== 'string' || slide.text.length > 100000 || slide.reference.length > 700)) throw new Error('Texto de vista previa inválido.');
     try { return await readSlideModel(file, slide); } catch (error) { throw new Error(spanishError(error)); }
   });

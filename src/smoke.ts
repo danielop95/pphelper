@@ -1,7 +1,7 @@
 import { app, type BrowserWindow } from 'electron';
 import { strict as assert } from 'node:assert';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, promises as fsPromises } from 'node:fs';
 import * as path from 'node:path';
 import * as protobuf from 'protobufjs';
 import { buildPro, PROTO_DIR, readSlideCount, readSlideModel } from './pro';
@@ -93,6 +93,19 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   assert.equal((await readSlideModel(prepared)).elements.find(e => e.role === 'reference')?.text?.content, 'Juan 3:16 PRUEBA');
   assert.equal((await readSlideModel(prepared)).background, (await readSlideModel(template)).background, 'No clonó la plantilla seleccionada');
   assert.equal((await evaluate('window.pphelper.getConfig()')).lastTemplate, 'Plantilla de prueba');
+  const readDirectory = fsPromises.readdir;
+  let templateReads = 0;
+  fsPromises.readdir = new Proxy(readDirectory, { apply(target, receiver, args) {
+    if (args[0] === templates) templateReads++;
+    return Reflect.apply(target, receiver, args);
+  } });
+  try {
+    for (let i = 0; i < 20; i++) {
+      const model = await evaluate(`window.pphelper.slideModel(${JSON.stringify(template)}, { text: 'Vista ${i}', reference: 'Juan 3:16' })`);
+      assert.equal(model.elements.find((e: { role?: string }) => e.role === 'verse').text.content, `Vista ${i}`);
+    }
+    assert.equal(templateReads, 0, 'Las vistas previas no deben volver a leer la carpeta de plantillas');
+  } finally { fsPromises.readdir = readDirectory; }
   await type('slide-text', 'Edición manual que se debe conservar.');
   await wait(ready);
   await click('no-template');
@@ -140,6 +153,11 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   await wait(`innerWidth <= 420`);
   assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), 'Desbordamiento horizontal en ventana mínima');
   win.setSize(480, 820);
+  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ templateLibrary: library })})`);
+  assert.deepEqual(await evaluate('window.pphelper.templates()'), [], 'Cambiar de biblioteca invalida la lista anterior');
+  assert(await evaluate(`window.pphelper.slideModel(${JSON.stringify(template)}).then(() => false, () => true)`));
+  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ templateLibrary: templates })})`);
+  assert.equal((await evaluate('window.pphelper.templates()')).length, 1);
   unlinkSync(template);
   await wait(`!${query('template-card')} && ${query('no-template')}.getAttribute('aria-pressed') === 'true' && ${ready}`);
   await type('reference', 'desconocido');
