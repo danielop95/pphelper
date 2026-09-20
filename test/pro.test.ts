@@ -3,8 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import * as protobuf from 'protobufjs';
-import { buildPro, PROTO_DIR, readSlideCount, setProtoDir } from '../src/pro';
+import { buildPro, PROTO_DIR, readSlideCount, readSlideModel, setProtoDir } from '../src/pro';
 
 const slides = [
   { label: 'Juan 3:16', text: 'Porque Dios ama al mundo.' },
@@ -177,5 +178,103 @@ test('permite configurar el directorio de protos', async () => {
     await assert.rejects(readSlideCount('no-existe.pro'), /no-existe.*presentation.proto/);
   } finally {
     setProtoDir(PROTO_DIR);
+  }
+});
+
+test('lee el modelo de la primera slide con texto Unicode, geometría y estilo', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-model-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'modelo.pro');
+  await buildPro({ name: 'Modelo', slides: [slides[1], slides[0]], outPath: file });
+  assert.deepEqual(await readSlideModel(file), {
+    width: 1920, height: 1080, background: 'rgba(0,0,0,1)',
+    elements: [{
+      x: 192, y: 270, width: 1536, height: 540, opacity: 1, role: 'verse',
+      text: { content: slides[1].text.replace(/\r\n/g, '\n'), fontFamily: 'Helvetica Neue', fontSize: 64,
+        color: 'rgba(255,255,255,1)', bold: false, italic: false, align: 'center', verticalAlign: 'middle' },
+    }],
+  });
+});
+
+test('asigna roles por área y sustituye el preview sin modificar la plantilla', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-model-roles-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'modelo.pro');
+  await buildPro({ name: 'Modelo', slides: [slides[0]], outPath: file });
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const P = root.lookupType('rv.data.Presentation');
+  const source = decode(P, await readFile(file));
+  const base = source.cues[0].actions[0].slide.presentation.baseSlide;
+  const small = decode(P, await readFile(file)).cues[0].actions[0].slide.presentation.baseSlide.elements[0];
+  small.element.bounds.size = { width: 400, height: 80 };
+  small.element.text.attributes.font = { name: 'HelveticaNeue-BoldItalic', size: 32 };
+  base.elements.unshift(small);
+  const bytes = Buffer.from(P.encode(source).finish());
+  await writeFile(file, bytes);
+  const original = await readSlideModel(file);
+  assert.deepEqual(original.elements.map(e => e.role), ['reference', 'verse']);
+  assert.equal(original.elements[0].text?.bold, true);
+  assert.equal(original.elements[0].text?.italic, true);
+  const model = await readSlideModel(file, { text: 'Nuevo texto', reference: 'Juan 3:16 NTV' });
+  assert.deepEqual(model.elements.map(e => e.text?.content), ['Juan 3:16 NTV', 'Nuevo texto']);
+  assert.deepEqual(await readFile(file), bytes);
+  base.elements[0].element.bounds.size = base.elements[1].element.bounds.size;
+  await writeFile(file, P.encode(source).finish());
+  assert.deepEqual((await readSlideModel(file)).elements.map(e => e.role), ['verse', 'reference']);
+});
+
+test('porta rellenos activados, imágenes locales y marcas de elementos no soportados', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-model-fill-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'modelo.pro');
+  const image = path.join(dir, 'imagen con espacio.png');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64');
+  await writeFile(image, png);
+  await buildPro({ name: 'Modelo', slides: [slides[0]], outPath: file });
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const P = root.lookupType('rv.data.Presentation');
+  const source = decode(P, await readFile(file));
+  const element = source.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element;
+  element.fill = { enable: false, color: { red: 1, alpha: 1 } };
+  element.stroke = { enable: false, width: 3 };
+  await writeFile(file, P.encode(source).finish());
+  assert.equal((await readSlideModel(file)).elements[0].fill, undefined);
+  assert.equal((await readSlideModel(file)).elements[0].unsupported, undefined);
+  element.fill.enable = true;
+  await writeFile(file, P.encode(source).finish());
+  assert.equal((await readSlideModel(file)).elements[0].fill, 'rgba(255,0,0,1)');
+  element.fill = { enable: true, media: { url: { absoluteString: pathToFileURL(image).href }, image: {} } };
+  await writeFile(file, P.encode(source).finish());
+  assert.equal((await readSlideModel(file)).elements[0].image, `data:image/png;base64,${png.toString('base64')}`);
+  for (const unsupported of [
+    { fill: { enable: true, gradient: {} } }, { path: { shape: { type: 2 } } },
+    { stroke: { enable: true } }, { shadow: { enable: true } },
+    { fill: { enable: true, media: { url: { absoluteString: 'file:///no-existe.png' }, image: {} } } },
+  ]) {
+    const candidate = decode(P, P.encode(source).finish());
+    Object.assign(candidate.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element, unsupported);
+    await writeFile(file, P.encode(candidate).finish());
+    const result = (await readSlideModel(file)).elements[0];
+    assert.equal(result.unsupported, true);
+    assert.equal(result.text?.content, slides[0].text);
+  }
+});
+
+test('decodifica escapes RTF uniformes y usa textutil para estilos mixtos', { skip: process.platform !== 'darwin' }, async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-model-rtf-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'modelo.pro');
+  await buildPro({ name: 'Modelo', slides: [slides[0]], outPath: file });
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const P = root.lookupType('rv.data.Presentation');
+  const source = decode(P, await readFile(file));
+  const text = source.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element.text;
+  for (const [rtf, expected] of [
+    ["{\\rtf1\\ansi\\ansicpg1252\\uc1\\pard Caf\\'e9\\~\\u193?rbol\\tab fin\\line otra\\par final}", 'Café\u00a0Árbol\tfin\notra\nfinal'],
+    ['{\\rtf1\\ansi\\pard hola {\\b mundo} y {\\i texto}}', 'hola mundo y texto'],
+  ]) {
+    text.rtfData = Buffer.from(rtf, 'latin1');
+    await writeFile(file, P.encode(source).finish());
+    assert.equal((await readSlideModel(file)).elements[0].text?.content, expected);
   }
 });

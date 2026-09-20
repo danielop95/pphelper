@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as protobuf from 'protobufjs';
-import type { Slide } from './types';
+import type { Slide, SlideElement, SlideModel } from './types';
 
 export const PROTO_DIR = path.join(__dirname, '..', '..', 'proto');
 let protoDir = PROTO_DIR;
@@ -40,17 +42,21 @@ function escapeRtf(text: string): string {
   }).join('');
 }
 
-function replaceRtf(bytes: Uint8Array, text: string): Buffer {
-  const rtf = Buffer.from(bytes).toString('latin1');
+function uniformRtf(rtf: string): RegExpExecArray {
   if (!/^\{\\rtf[01]/.test(rtf)) throw new Error('El elemento no contiene RTF reconocido');
   // ponytail: un único tramo uniforme; los estilos mixtos requieren mapear runs.
   if (/\\uc(?!1\b)\d+/.test(rtf)) throw new Error('Solo se admite el escape Unicode RTF uc1');
   // Los escapes de contenido iniciales (Unicode, saltos, tabs) no son formato.
-  const match = /^([\s\S]*?\\pard\b(?:\\(?!u-?\d|(?:par|line|tab)\b)[a-zA-Z]+-?\d* ?|[\r\n])*)([\s\S]*)(\}\s*)$/.exec(rtf);
+  const match = /^([\s\S]*?\\pard\b ?(?:\\(?!u-?\d|(?:par|line|tab)\b)[a-zA-Z]+-?\d* ?|[\r\n])*)([\s\S]*)(\}\s*)$/.exec(rtf);
   if (!match) throw new Error('RTF sin párrafo uniforme: la plantilla no es compatible');
   if (!/^(?:[^\\{}]|\\[\\{}~_-]|\\'[a-fA-F0-9]{2}|\\u-?\d+\?|\\(?:par|line|tab) ?)*$/.test(match[2])) {
     throw new Error('RTF con estilos mixtos o grupos en el texto: no se modificó la plantilla');
   }
+  return match;
+}
+
+function replaceRtf(bytes: Uint8Array, text: string): Buffer {
+  const match = uniformRtf(Buffer.from(bytes).toString('latin1'));
   return Buffer.from(match[1] + escapeRtf(text) + match[3], 'latin1');
 }
 
@@ -202,5 +208,114 @@ export async function buildPro(opts: {
 export async function readSlideCount(filePath: string): Promise<number> {
   const root = await loadProtos();
   const presentation = decode(root.lookupType('rv.data.Presentation'), await readFile(filePath));
-  return presentation.cues.length;
+  return presentation.cues.reduce((count: number, cue: protobuf.ReflectedMessage) => count
+    + cue.actions.filter((action: protobuf.ReflectedMessage) => action.slide?.presentation?.baseSlide).length, 0);
+}
+
+function cssColor(color: protobuf.ReflectedMessage): string {
+  return `rgba(${Math.round((color.red || 0) * 255)},${Math.round((color.green || 0) * 255)},${Math.round((color.blue || 0) * 255)},${color.alpha || 0})`;
+}
+
+async function rtfText(bytes: Uint8Array): Promise<string> {
+  if (!bytes.length) return '';
+  const rtf = Buffer.from(bytes).toString('latin1');
+  try {
+    const match = uniformRtf(rtf);
+    if (/\\ansicpg(?!1252\b)\d+|\\(?:mac|pc|pca)\b/.test(match[1])) throw new Error('Codificación RTF alternativa');
+    const ansi = new TextDecoder('windows-1252');
+    return match[2].replace(/[\r\n]/g, '').replace(
+      /\\u(-?\d+)\?|\\'([a-fA-F0-9]{2})|\\(par|line|tab) ?|\\([\\{}~_-])|[^\\]+/g,
+      (token, unicode: string, hex: string, control: string, symbol: string) => {
+        if (unicode !== undefined) return String.fromCharCode(Number(unicode) & 0xffff);
+        if (hex !== undefined) return ansi.decode(Uint8Array.of(parseInt(hex, 16)));
+        if (control) return control === 'tab' ? '\t' : '\n';
+        if (symbol) return ({ '~': '\u00a0', '_': '\u2011', '-': '\u00ad' } as Record<string, string>)[symbol] ?? symbol;
+        return ansi.decode(Buffer.from(token, 'latin1'));
+      });
+  } catch {
+    return new Promise((resolve, reject) => {
+      const child = execFile('/usr/bin/textutil', ['-convert', 'txt', '-stdin', '-stdout', '-encoding', 'UTF-8'],
+        { encoding: 'utf8', maxBuffer: 5e6 }, (error, stdout) => {
+          if (error) reject(new Error('No se pudo leer el texto RTF de la diapositiva', { cause: error }));
+          else resolve(stdout.replace(/\n$/, ''));
+        });
+      child.stdin?.on('error', () => { /* execFile comunica el error del proceso. */ });
+      child.stdin?.end(Buffer.from(bytes));
+    });
+  }
+}
+
+export async function readSlideModel(filePath: string, slide?: { text: string; reference: string }): Promise<SlideModel> {
+  const root = await loadProtos();
+  const presentation = decode(root.lookupType('rv.data.Presentation'), await readFile(filePath));
+  const base = presentation.cues.flatMap((cue: protobuf.ReflectedMessage) => cue.actions)
+    .find((action: protobuf.ReflectedMessage) => action.slide?.presentation?.baseSlide)?.slide.presentation.baseSlide;
+  if (!base) throw new Error('La presentación no contiene diapositivas');
+  const { width, height } = base.size || {};
+  if (!(width > 0 && height > 0)) throw new Error('Tamaño de diapositiva inválido');
+  const elements: SlideElement[] = [];
+  for (const { element: e } of base.elements) {
+    if (!e) continue;
+    const b = e.bounds;
+    const fill = e.fill;
+    const item: SlideElement = {
+      x: b?.origin?.x || 0, y: b?.origin?.y || 0,
+      width: b?.size?.width || 0, height: b?.size?.height || 0,
+      opacity: e.hidden ? 0 : e.opacity,
+    };
+    if (fill?.enable && fill.color) item.fill = cssColor(fill.color);
+    if ((fill?.enable && (fill.gradient || fill.backgroundEffect))
+      || (e.path && e.path.shape?.type !== 1) || e.stroke?.enable || e.shadow?.enable
+      || e.feather?.enable || e.rotation || e.flipMode) item.unsupported = true;
+    if (fill?.enable && fill.media) {
+      const url = fill.media.url?.absoluteString;
+      try {
+        if (!url?.startsWith('file://') || !fill.media.image) throw new Error('Media no compatible');
+        const local = fileURLToPath(url);
+        const mime = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' } as Record<string, string>)[path.extname(local).toLowerCase()];
+        if (!mime) throw new Error('Formato de imagen no compatible');
+        item.image = `data:${mime};base64,${(await readFile(local)).toString('base64')}`;
+      } catch {
+        item.unsupported = true;
+      }
+    }
+    if (e.text) {
+      const text = e.text;
+      const rtf = Buffer.from(text.rtfData || []).toString('latin1');
+      const a = text.attributes || {};
+      const font = a.font?.family || a.font?.name || /\\f\d+(?:\\[a-z]+\d*\s*)*\s+([^;{}]+);/.exec(rtf)?.[1] || 'Helvetica Neue';
+      const fontName = `${a.font?.name || font} ${a.font?.face || ''}`;
+      const rgb = /\\red(\d+)\\green(\d+)\\blue(\d+)/.exec(rtf);
+      item.text = {
+        content: await rtfText(text.rtfData || new Uint8Array()),
+        fontFamily: font,
+        fontSize: a.font?.size || Number(/\\fs(\d+)/.exec(rtf)?.[1] || 84) / 2,
+        color: a.textSolidFill ? cssColor(a.textSolidFill) : rgb ? `rgba(${rgb[1]},${rgb[2]},${rgb[3]},1)` : 'rgba(255,255,255,1)',
+        bold: !!a.font?.bold || /bold|heavy|black/i.test(fontName) || /\\b(?:1)?\b/.test(rtf),
+        italic: !!a.font?.italic || /italic|oblique/i.test(fontName) || /\\i(?:1)?\b/.test(rtf),
+        align: a.paragraphStyle ? (['left', 'right', 'center', 'justify'] as const)[a.paragraphStyle.alignment] || 'left'
+          : /\\qc\b/.test(rtf) ? 'center' : /\\qr\b/.test(rtf) ? 'right' : /\\qj\b/.test(rtf) ? 'justify' : 'left',
+        verticalAlign: (['top', 'middle', 'bottom'] as const)[text.verticalAlignment || 0] || 'top',
+      };
+      if (a.textGradientFill || a.strokeWidth || text.shadow?.enable) item.unsupported = true;
+    }
+    elements.push(item);
+  }
+  const texts = elements.filter(element => element.text);
+  if (texts.length) {
+    const verse = texts.reduce((a, b) => b.width * b.height > a.width * a.height ? b : a);
+    verse.role = 'verse';
+    if (slide) verse.text!.content = slide.text;
+    if (texts.length > 1) {
+      const reference = texts.reduce((a, b) => b.width * b.height <= a.width * a.height ? b : a);
+      reference.role = 'reference';
+      if (slide) reference.text!.content = slide.reference;
+    }
+  }
+  return {
+    width, height,
+    background: base.drawsBackgroundColor && base.backgroundColor ? cssColor(base.backgroundColor)
+      : presentation.background?.isEnabled && presentation.background.color ? cssColor(presentation.background.color) : 'rgba(0,0,0,0)',
+    elements,
+  };
 }
