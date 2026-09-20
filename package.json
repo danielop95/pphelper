@@ -7,7 +7,7 @@
     "build": "tsc",
     "test": "tsc && node --test dist/test/*.test.js",
     "start": "electron .",
-    "dist": "electron-builder --mac dmg"
+    "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
@@ -19,8 +19,30 @@
     "protobufjs": "^8.8.0"
   },
   "build": {
+    "appId": "com.nkrease.pphelper",
+    "productName": "pphelper",
     "directories": {
       "output": "out"
-    }
+    },
+    "files": [
+      "dist/src/**/*.js",
+      "src/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "proto",
+        "to": "proto",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
   }
 }
