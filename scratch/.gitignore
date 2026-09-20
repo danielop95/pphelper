@@ -1,0 +1,4 @@
+ref-repos/
+out/
+reference.pro
+*.local.json
