@@ -1,54 +1,10 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
-  <title>pphelper</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="app.js" defer></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'sha256-38RhXrc7EdReTKsOm23ZPOCUgniTUUcjky8QOOrQx6o='; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<title>pphelper</title>
 </head>
-<body>
-  <header><h1>pphelper</h1><span>Texto a presentación</span></header>
-  <main>
-    <form id="lookup-form">
-      <label for="reference">Referencia bíblica</label>
-      <div class="row"><input id="reference" placeholder="Juan 3:16-18" autocomplete="off" autofocus required maxlength="200"><button id="search" class="primary" type="submit">Buscar</button></div>
-      <div class="selectors">
-        <div><label for="version">Versión</label><select id="version"><option value="">Configura una Biblia</option></select></div>
-        <div><label for="template">Plantilla</label><select id="template"><option value="">Sin plantilla</option></select></div>
-      </div>
-    </form>
-    <p id="error" role="alert" hidden></p>
-    <p id="status" role="status" aria-live="polite">Añade tu clave y elige una Biblia en Ajustes.</p>
-    <section aria-labelledby="slides-title">
-      <div class="section-heading"><h2 id="slides-title">Diapositivas</h2><span id="slide-count">0</span></div>
-      <p id="empty">Busca un pasaje para preparar sus diapositivas. Puedes editar el texto antes de enviarlo.</p>
-      <div id="slides"></div>
-    </section>
-    <section class="export" aria-label="Enviar presentación">
-      <div id="drag-card" draggable="false" aria-disabled="true" aria-describedby="drag-filename">
-        <strong>Arrastra a ProPresenter</strong>
-        <span id="drag-filename">El archivo aparecerá aquí</span>
-      </div>
-      <button id="send-library" type="button" disabled>Enviar a biblioteca</button>
-    </section>
-    <details id="settings">
-      <summary>Ajustes</summary>
-      <form id="settings-form">
-        <label for="api-key">Clave API.Bible</label>
-        <input id="api-key" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help">
-        <p class="help" id="key-help">Se guarda en este equipo. Los capítulos consultados quedan disponibles sin conexión.</p>
-        <button id="load-bibles" type="button">Cargar Biblias</button>
-        <fieldset id="bibles"><legend>Biblias disponibles</legend><div id="bible-list">Carga la lista para elegir versiones en español.</div></fieldset>
-        <label for="max-chars">Máximo de caracteres por diapositiva</label>
-        <input id="max-chars" type="number" min="1" max="10000" step="1" required value="180">
-        <label for="library-path">Carpeta de biblioteca</label>
-        <div class="row"><input id="library-path" type="text" placeholder="Selecciona una carpeta"><button id="choose-library" type="button">Elegir…</button></div>
-        <button type="submit">Guardar ajustes</button>
-      </form>
-      <div class="template-settings"><button id="add-template" type="button">Añadir plantilla</button><p class="help">Archivo .pro con una sola diapositiva. Sin plantilla se usa texto blanco sobre negro.</p></div>
-    </details>
-  </main>
-</body>
+<body><div id="root"></div><script type="module" src="./App.tsx"></script></body>
 </html>

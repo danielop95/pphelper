@@ -7,5 +7,5 @@
     "strict": true
   },
   "include": ["src", "test"],
-  "exclude": ["src/renderer-next"]
+  "exclude": ["src/renderer"]
 }

@@ -4,9 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
-  root: 'src/renderer-next',
+  root: 'src/renderer',
   base: './',
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src/renderer-next/', import.meta.url)) } },
-  build: { outDir: '../../dist/renderer-next', emptyOutDir: true },
+  resolve: { alias: { '@': fileURLToPath(new URL('./src/renderer/', import.meta.url)) } },
+  build: { outDir: '../../dist/renderer', emptyOutDir: true },
 });
