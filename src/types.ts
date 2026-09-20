@@ -89,3 +89,23 @@ export const IPC = {
   slideModel: 'slide:model',
   reflow: 'slides:reflow',
 } as const;
+
+export interface PreparedFile { name: string; revision: number }
+export interface BibleOption { id: string; key: string; name: string }
+export interface PPHelperAPI {
+  lookup(ref: string, versionKey: string, template: string): Promise<{ ref: string; slides: Slide[] }>;
+  build(input: { ref: string; versionKey: string; template: string; slides: Slide[] }): Promise<PreparedFile | null>;
+  startDrag(revision: number): void;
+  sendToLibrary(revision: number): Promise<string>;
+  getConfig(): Promise<Config & { error?: string }>;
+  setConfig(partial: Partial<Config>): Promise<Config>;
+  listBibles(): Promise<BibleOption[]>;
+  listLibraries(): Promise<{ name: string; path: string }[]>;
+  templates(): Promise<LibraryItem[]>;
+  slideModel(file: string, slide?: { text: string; reference: string }): Promise<SlideModel>;
+  reflow(template: string): Promise<Slide[]>;
+  chooseLibrary(target: 'libraryPath' | 'templateLibrary'): Promise<Config | null>;
+  editSlides(slides: Slide[], index: number, position?: number): Promise<Slide[]>;
+  onDragError(callback: (message: string) => void): () => void;
+  onTemplatesChanged(callback: () => void): () => void;
+}

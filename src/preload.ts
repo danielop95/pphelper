@@ -1,23 +1,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { IPC, Config, Slide } from './types';
+import type { IPC, Config, Slide, PPHelperAPI } from './types';
 
-// Sandbox preloads cannot require local modules. Main passes the shared constants, not secrets.
+// Sandbox preloads cannot require local modules. Main passes constants, never secrets.
 const channels = JSON.parse(process.argv.find(value => value.startsWith('--pphelper-ipc='))!.slice('--pphelper-ipc='.length)) as typeof IPC & {
-  library: string; bibles: string; template: string; folder: string; edit: string; dragError: string;
+  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string;
 };
-contextBridge.exposeInMainWorld('pphelper', {
-  lookup: (ref: string, versionKey: string) => ipcRenderer.invoke(channels.lookup, ref, versionKey),
-  // A payload prepares the file; a revision starts the native drag synchronously.
-  buildAndDrag: (input: { ref: string; versionKey: string; template: string; slides: Slide[] } | number) => {
-    if (typeof input === 'number') { ipcRenderer.send(channels.dragOut, input); return; }
-    return ipcRenderer.invoke(channels.build, input);
-  },
-  sendToLibrary: (revision: number) => ipcRenderer.invoke(channels.library, revision),
+function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, value: T) => callback(value);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+const api: PPHelperAPI = {
+  lookup: (ref, versionKey, template) => ipcRenderer.invoke(channels.lookup, ref, versionKey, template),
+  build: input => ipcRenderer.invoke(channels.build, input),
+  startDrag: revision => ipcRenderer.send(channels.dragOut, revision),
+  sendToLibrary: revision => ipcRenderer.invoke(channels.library, revision),
   getConfig: () => ipcRenderer.invoke(channels.config),
   setConfig: (partial: Partial<Config>) => ipcRenderer.invoke(channels.configSet, partial),
   listBibles: () => ipcRenderer.invoke(channels.bibles),
-  addTemplate: () => ipcRenderer.invoke(channels.template),
-  chooseLibrary: () => ipcRenderer.invoke(channels.folder),
+  listLibraries: () => ipcRenderer.invoke(channels.libraries),
+  templates: () => ipcRenderer.invoke(channels.templates),
+  slideModel: (file, slide) => ipcRenderer.invoke(channels.slideModel, file, slide),
+  reflow: template => ipcRenderer.invoke(channels.reflow, template),
+  chooseLibrary: target => ipcRenderer.invoke(channels.folder, target),
   editSlides: (slides: Slide[], index: number, position?: number) => ipcRenderer.invoke(channels.edit, slides, index, position),
-  onDragError: (callback: (message: string) => void) => { ipcRenderer.on(channels.dragError, (_event, message: string) => callback(message)); },
+  onDragError: callback => subscribe(channels.dragError, callback),
+  onTemplatesChanged: callback => subscribe(channels.templatesChanged, callback),
+};
+contextBridge.exposeInMainWorld('pphelper', api);
+
+window.addEventListener('DOMContentLoaded', () => {
+  document.documentElement.dataset.sandboxed = String(process.sandboxed);
+  document.documentElement.dataset.isolated = String(process.contextIsolated);
 });
