@@ -1,4 +1,4 @@
-import { Slide, Verse } from './types';
+import { Limits, Slide, Verse } from './types';
 
 function nearestCut(text: string, target: number, punctuation: boolean): number {
   const positions = Array.from(text.matchAll(punctuation ? /[.;,:]/g : /\s+/g), m => m.index! + (punctuation ? 1 : 0))
@@ -8,9 +8,29 @@ function nearestCut(text: string, target: number, punctuation: boolean): number 
 
 function parts(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text];
-  const hasPunctuation = /[.;,:].*\S/s.test(text);
-  const cut = nearestCut(text, text.length / 2, hasPunctuation);
-  return [...parts(text.slice(0, cut).trim(), maxChars), ...parts(text.slice(cut).trim(), maxChars)];
+  const count = Math.ceil(text.length / maxChars);
+  const size = text.length / count;
+  const punctuation = Array.from(text.matchAll(/[.;:,?!](?=\s)/g), m => m.index! + 1);
+  const spaces = Array.from(text.matchAll(/\s+/g), m => m.index!);
+  const result: string[] = [];
+  let start = 0;
+  for (let k = 1; k < count && start < text.length; k++) {
+    const target = k * size;
+    // Reservar capacidad para las partes restantes evita rebasar el máximo.
+    const min = Math.max(start + 1, text.length - (count - k) * maxChars);
+    const max = Math.min(start + maxChars, text.length - (count - k));
+    const valid = (pos: number) => pos >= min && pos <= max && !!text.slice(start, pos).trim() && !!text.slice(pos).trim();
+    let candidates = punctuation.filter(pos => valid(pos) && Math.abs(pos - target) <= size / 4);
+    if (!candidates.length) candidates = spaces.filter(valid);
+    const cut = candidates.reduce((best, pos) => Math.abs(pos - target) < Math.abs(best - target) ? pos : best,
+      candidates[0] ?? Math.max(min, Math.min(max, Math.round(target))));
+    const part = text.slice(start, cut).trim();
+    if (part) result.push(part);
+    start = cut;
+    while (start < text.length && /\s/.test(text[start])) start++;
+  }
+  if (start < text.length) result.push(text.slice(start).trim());
+  return result;
 }
 
 function suffix(index: number): string {
@@ -19,12 +39,36 @@ function suffix(index: number): string {
   return value;
 }
 
-export function toSlides(verses: Verse[], bookName: string, maxChars: number): Slide[] {
+export function toSlides(verses: Verse[], bookName: string, limits: Limits | number): Slide[] {
+  // ponytail: el criterio es por caracteres, no ancho real; calibrar los límites por plantilla.
+  const { minChars, maxChars } = typeof limits === 'number' ? { minChars: 0, maxChars: limits } : limits;
   if (!Number.isSafeInteger(maxChars) || maxChars < 1) throw new Error('El límite de caracteres debe ser un entero positivo.');
-  return verses.flatMap(verse => {
+  if (!Number.isSafeInteger(minChars) || minChars < 0 || minChars > maxChars) throw new Error('El límite mínimo debe estar entre cero y el máximo.');
+  const items = verses.flatMap(verse => {
     const texts = parts(verse.text.trim(), maxChars);
-    return texts.map((text, i) => ({ label: `${bookName} ${verse.chapter}:${verse.verse}${texts.length > 1 ? suffix(i) : ''}`, text }));
+    return texts.map((text, i) => ({
+      slide: { label: `${bookName} ${verse.chapter}:${verse.verse}${texts.length > 1 ? suffix(i) : ''}`, text },
+      first: verse, last: verse, split: texts.length > 1,
+    }));
   });
+  const canMerge = (i: number, max: number) => {
+    const left = items[i];
+    const right = items[i + 1];
+    return !left.split && !right.split && left.last.book === right.first.book &&
+      left.last.chapter === right.first.chapter && left.last.verse + 1 === right.first.verse &&
+      left.slide.text.length + 1 + right.slide.text.length <= max;
+  };
+  const merge = (i: number) => items.splice(i, 2, {
+    ...items[i], last: items[i + 1].last,
+    slide: mergeSlides([items[i].slide, items[i + 1].slide], 0)[0],
+  });
+  for (let i = 0; i + 1 < items.length;) {
+    if (items[i].slide.text.length < minChars && canMerge(i, maxChars)) merge(i);
+    else i++;
+  }
+  const last = items.length - 1;
+  if (last > 0 && items[last].slide.text.length < minChars && canMerge(last - 1, maxChars + Math.floor(maxChars * 15 / 100))) merge(last - 1);
+  return items.map(item => item.slide);
 }
 
 export function mergeSlides(slides: Slide[], i: number): Slide[] {

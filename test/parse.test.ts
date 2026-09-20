@@ -76,6 +76,70 @@ test('mergeSlides y splitSlide derivan labels y devuelven arrays nuevos', () => 
   assert.throws(() => splitSlide(slides, 0, 0), /posición/i);
 });
 
+test('toSlides reparte 500 caracteres en tres partes equilibradas', () => {
+  const text = 'Palabra de vida, '.repeat(29) + 'Amén sí';
+  assert.equal(text.length, 500);
+  const slides = toSlides([{ ...verses[0], text }], 'Juan', 180);
+  const lengths = slides.map(s => s.text.length);
+  assert.deepEqual(slides.map(s => s.label), ['Juan 3:16a', 'Juan 3:16b', 'Juan 3:16c']);
+  assert.ok(Math.max(...lengths) / Math.min(...lengths) < 1.35);
+  assert.ok(lengths.every(length => length > 0 && length <= 180));
+  assert.equal(slides.map(s => s.text).join(' '), text);
+});
+
+test('toSlides acumula versículos cortos, deriva rangos y conserva la entrada', () => {
+  const input = ['Jesús lloró.', 'Lo amaba.', 'Y fue allí.', 'x'.repeat(60)]
+    .map((text, i) => ({ ...verses[0], verse: i + 1, text }));
+  const before = structuredClone(input);
+  const limits = { minChars: 30, maxChars: 80 };
+  assert.deepEqual(toSlides(input, 'Juan', limits), [
+    { label: 'Juan 3:1-3', text: 'Jesús lloró. Lo amaba. Y fue allí.' },
+    { label: 'Juan 3:4', text: 'x'.repeat(60) },
+  ]);
+  assert.deepEqual(input, before);
+  assert.deepEqual(limits, { minChars: 30, maxChars: 80 });
+  assert.deepEqual(toSlides(input, 'Juan', { minChars: 0, maxChars: 80 }),
+    input.map(v => ({ label: `Juan 3:${v.verse}`, text: v.text })));
+  assert.deepEqual(toSlides(input, 'Juan', 80), toSlides(input, 'Juan', { minChars: 0, maxChars: 80 }));
+});
+
+test('toSlides solo permite exceder el máximo al unir la cola corta final', () => {
+  const make = (lengths: number[]) => lengths.map((length, i) => ({ ...verses[0], verse: i + 1, text: 'x'.repeat(length) }));
+  const limits = { minChars: 30, maxChars: 100 };
+  assert.deepEqual(toSlides(make([80, 19]), 'Juan', limits).map(s => s.label), ['Juan 3:1-2']);
+  assert.deepEqual(toSlides(make([100, 14]), 'Juan', limits), [{ label: 'Juan 3:1-2', text: `${'x'.repeat(100)} ${'x'.repeat(14)}` }]);
+  assert.deepEqual(toSlides(make([100, 15]), 'Juan', limits).map(s => s.text.length), [100, 15]);
+  assert.deepEqual(toSlides(make([100, 14, 100]), 'Juan', limits).map(s => s.text.length), [100, 14, 100]);
+});
+
+test('toSlides no une partes de un versículo ni referencias discontinuas', () => {
+  const input = [
+    { ...verses[0], verse: 1, text: 'Jesús lloró.' },
+    { ...verses[0], verse: 2, text: 'x'.repeat(101) },
+    { ...verses[0], verse: 3, text: 'Amén.' },
+  ];
+  assert.deepEqual(toSlides(input, 'Juan', { minChars: 80, maxChars: 100 }).map(s => s.label),
+    ['Juan 3:1', 'Juan 3:2a', 'Juan 3:2b', 'Juan 3:3']);
+  for (const next of [{ ...input[0], verse: 3 }, { ...input[0], chapter: 4 }, { ...input[0], book: 'GEN', verse: 2 }]) {
+    assert.equal(toSlides([input[0], next], 'Juan', { minChars: 80, maxChars: 100 }).length, 2);
+  }
+  for (const limits of [{ minChars: -1, maxChars: 10 }, { minChars: 11, maxChars: 10 }, { minChars: NaN, maxChars: 10 }, { minChars: 0, maxChars: Infinity }]) {
+    assert.throws(() => toSlides(input, 'Juan', limits), /límite/i);
+  }
+});
+
+test('toSlides prefiere puntuación cercana seguida de espacio y respeta el máximo', () => {
+  for (const mark of ['.', ';', ':', ',', '?', '!']) {
+    const text = `${'a'.repeat(43)}${mark} ${'b'.repeat(55)}`;
+    assert.deepEqual(toSlides([{ ...verses[0], text }], 'Juan', 60).map(s => s.text.length), [44, 55]);
+  }
+  for (const text of [`${'a'.repeat(10)}. ${'b'.repeat(37)} ${'c'.repeat(50)}`, `${'a'.repeat(43)}?${'b'.repeat(5)} ${'c'.repeat(50)}`]) {
+    assert.deepEqual(toSlides([{ ...verses[0], text }], 'Juan', 60).map(s => s.text.length), [49, 50]);
+  }
+  const text = `${'a'.repeat(53)}. ${'b'.repeat(45)}`;
+  assert.ok(toSlides([{ ...verses[0], text }], 'Juan', 50).every(s => s.text.length <= 50));
+});
+
 test('fetchVerses usa caché precargada sin red y filtra el rango', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pphelper-cache-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
