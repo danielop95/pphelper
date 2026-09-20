@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -17,6 +19,77 @@ function decode(type: protobuf.Type, bytes: Uint8Array): protobuf.ReflectedMessa
   reader.discardUnknown = false;
   return type.decode(reader);
 }
+
+test('clona RTF vacío desde attributes y conserva el estilo de MEnsaje', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-empty-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const templatePath = path.join(dir, 'plantilla.pro');
+  const outPath = path.join(dir, 'clon.pro');
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const P = root.lookupType('rv.data.Presentation');
+  await buildPro({ name: 'Vacía', slides: [slides[0]], outPath: templatePath });
+  const synthetic = decode(P, await readFile(templatePath));
+  const text = synthetic.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element.text;
+  text.rtfData = Buffer.from('{\\rtf1\\ansi\\ansicpg1252\\cocoartf2870\n\\cocoatextscaling0\\cocoaplatform0{\\fonttbl}{\\colortbl;\\red255\\green255\\blue255;}{\\*\\expandedcolortbl;;}}');
+  text.attributes.font.size = 42;
+  const fixtures = [Buffer.from(P.encode(synthetic).finish())];
+  const real = path.join(homedir(), 'Library/Application Support/RenewedVision/ProPresenter/UserWorkspaces/ProPresenter/Libraries/Preestablecido/MEnsaje.pro');
+  if (existsSync(real)) fixtures.push(await readFile(real));
+  const accented = [{ label: 'Salmo 23:1', text: 'El Señor es mi pastor.' }, { label: 'Salmo 23:2', text: 'Él me guía; salvación y paz.' }];
+  for (const bytes of fixtures) {
+    await writeFile(templatePath, bytes); // Siempre una copia temporal, nunca la biblioteca real.
+    const source = decode(P, bytes);
+    const before = source.cues[0].actions.find((a: protobuf.ReflectedMessage) => a.slide?.presentation?.baseSlide).slide.presentation.baseSlide;
+    const preview = (await readSlideModel(templatePath)).elements.find(e => e.role === 'verse')!.text!;
+    assert.equal(preview.content, '');
+    assert.equal(preview.fontFamily, 'Helvetica Neue');
+    assert.equal(preview.fontSize, 42);
+    assert.equal(preview.align, 'center');
+    assert.equal(preview.color, 'rgba(255,255,255,1)');
+    await buildPro({ name: 'Clon vacío', slides: accented, templatePath, outPath });
+    const output = decode(P, await readFile(outPath));
+    assert.equal(output.cues.length, 2);
+    const ids = new Set<string>();
+    for (const [index, cue] of output.cues.entries()) {
+      const action = cue.actions.find((a: protobuf.ReflectedMessage) => a.slide?.presentation?.baseSlide);
+      const base = action.slide.presentation.baseSlide;
+      assert.equal(action.label.text, accented[index].label);
+      for (const uuid of [cue.uuid, action.uuid, base.uuid, ...base.elements.map((e: protobuf.ReflectedMessage) => e.element.uuid)]) {
+        assert(!ids.has(uuid.string));
+        ids.add(uuid.string);
+      }
+      assert.deepEqual(base.size, before.size);
+      for (const [i, { element }] of base.elements.entries()) {
+        const original = before.elements[i].element;
+        if (element.text) {
+          const rtf = Buffer.from(element.text.rtfData).toString('latin1');
+          assert.match(rtf, /Helvetica ?Neue;/);
+          assert.match(rtf, /\\fs84\b/);
+          assert.match(rtf, /\\qc\b/);
+          assert.match(rtf, /\\red255\\green255\\blue255/);
+          assert.match(rtf, /\\u(?:241|201)\?/);
+          if (process.platform === 'darwin') assert.equal(execFileSync('/usr/bin/textutil', ['-convert', 'txt', '-stdin', '-stdout', '-encoding', 'UTF-8'], { input: element.text.rtfData, encoding: 'utf8' }).replace(/\n$/, ''), accented[index].text);
+          element.text.rtfData = original.text.rtfData;
+        }
+        element.uuid = original.uuid;
+        assert.deepEqual(element, original, 'Conserva geometría, atributos y campos desconocidos');
+      }
+    }
+    assert.deepEqual(await readFile(templatePath), bytes);
+  }
+  text.attributes.font.name = 'HelveticaNeue-BoldItalic';
+  text.attributes.textSolidFill = { red: 0.2, green: 0.4, blue: 0.6, alpha: 1 };
+  for (const [alignment, control] of ['ql', 'qr', 'qc', 'qj'].entries()) {
+    text.attributes.paragraphStyle.alignment = alignment;
+    await writeFile(templatePath, P.encode(synthetic).finish());
+    await buildPro({ name: 'Estilo', slides: accented, templatePath, outPath });
+    const rtf = Buffer.from(decode(P, await readFile(outPath)).cues[0].actions[0].slide.presentation.baseSlide.elements[0].element.text.rtfData).toString();
+    assert(rtf.includes(`\\pard\\${control}\\f0\\fs84\\cf1\\b\\i `));
+    assert(rtf.includes('\\red51\\green102\\blue153'));
+    const preview = (await readSlideModel(templatePath)).elements[0].text!;
+    assert(preview.bold && preview.italic);
+  }
+});
 
 test('genera dos slides con labels, RTF y estilo fijo', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-pro-'));
@@ -163,10 +236,10 @@ test('rechaza plantillas con varias slides, RTF mixto y textos inválidos', asyn
   const Presentation = root.lookupType('rv.data.Presentation');
   const source = decode(Presentation, await readFile(templatePath));
   source.cues = [source.cues[0]];
-  for (const rtf of ['{\\rtf1\\pard\\f0 hola \\b mundo}', '{\\rtf1\\uc2\\pard hola}']) {
+  for (const rtf of ['{\\rtf1\\pard\\f0 hola \\b mundo}', '{\\rtf1\\uc2\\pard hola}', '{\\rtf1\\ansi hola}', '{\\rtf1\\ansi\\u193?}', '{\\rtf1\\ansi\\tab}']) {
     source.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element.text.rtfData = Buffer.from(rtf);
     await writeFile(templatePath, Presentation.encode(source).finish());
-    await assert.rejects(buildPro({ name: 'Clon', slides, templatePath, outPath }), /estilos mixtos|uc1/);
+    await assert.rejects(buildPro({ name: 'Clon', slides, templatePath, outPath }), /estilos mixtos|uc1|sin párrafo uniforme/);
   }
   await assert.rejects(buildPro({ name: 'Vacía', slides: [], outPath }), /al menos un texto/);
   await assert.rejects(buildPro({ name: 'Control', slides: [{ label: 'x', text: '\x00' }], outPath }), /control/);

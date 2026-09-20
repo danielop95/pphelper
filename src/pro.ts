@@ -55,14 +55,38 @@ function uniformRtf(rtf: string): RegExpExecArray {
   return match;
 }
 
-function replaceRtf(bytes: Uint8Array, text: string): Buffer {
-  const match = uniformRtf(Buffer.from(bytes).toString('latin1'));
+function emptyRtf(rtf: string): boolean {
+  // Solo cabeceras y tablas: nunca descartar texto o estilos de un párrafo existente.
+  const header = rtf.replace(/\{\\(?:fonttbl|colortbl|\*\\expandedcolortbl)(?:[^{}]|\{[^{}]*\})*\}/g, '');
+  return /^\{\\rtf[01](?:\s|\\(?:ansi|ansicpg\d+|uc1|deff\d+|deflang\d+|cocoartf\d+|cocoatextscaling\d+|cocoaplatform\d+)\b ?)*\}$/.test(header);
+}
+
+function styledRtf(text: string, attributes: Pick<protobuf.ReflectedMessage, 'font' | 'textSolidFill' | 'paragraphStyle'>): Buffer {
+  const font = attributes.font || {};
+  const name = `${font.name || font.family || ''} ${font.face || ''}`;
+  const color = attributes.textSolidFill || { red: 1, green: 1, blue: 1 };
+  const rgb = ['red', 'green', 'blue'].map(key => `\\${key}${Math.round((color[key] || 0) * 255)}`).join('');
+  const align = ['ql', 'qr', 'qc', 'qj'][attributes.paragraphStyle?.alignment ?? 0] || 'ql';
+  return Buffer.from('{\\rtf1\\ansi\\ansicpg1252\\uc1'
+    + '{\\fonttbl{\\f0 ' + escapeRtf(font.family || font.name || 'Helvetica Neue') + ';}}'
+    + '{\\colortbl;' + rgb + ';}'
+    + `\\pard\\${align}\\f0\\fs${Math.round((font.size || 42) * 2)}\\cf1`
+    + (font.bold || /bold|heavy|black/i.test(name) ? '\\b' : '')
+    + (font.italic || /italic|oblique/i.test(name) ? '\\i' : '')
+    + ' ' + escapeRtf(text) + '}', 'latin1');
+}
+
+function replaceRtf(elementText: protobuf.ReflectedMessage, text: string): Buffer {
+  const rtf = Buffer.from(elementText.rtfData || []).toString('latin1');
+  if (emptyRtf(rtf)) return styledRtf(text, elementText.attributes || {});
+  const match = uniformRtf(rtf);
   return Buffer.from(match[1] + escapeRtf(text) + match[3], 'latin1');
 }
 
 function buildPresentation(name: string, slides: Slide[], type: protobuf.Type, group = name): protobuf.ReflectedMessage {
   const white = { red: 1, green: 1, blue: 1, alpha: 1 };
   const font = { name: 'HelveticaNeue', family: 'Helvetica Neue', size: 64 };
+  const attributes = { font, textSolidFill: white, paragraphStyle: { alignment: 2, lineHeightMultiple: 1 } };
   const cues = slides.map(({ label, text }) => ({
     uuid: id(), name: label, isEnabled: true, completionActionType: 1,
     actions: [{
@@ -82,12 +106,9 @@ function buildPresentation(name: string, slides: Slide[], type: protobuf.Type, g
               })),
             },
             text: {
-              attributes: { font, textSolidFill: white, paragraphStyle: { alignment: 2, lineHeightMultiple: 1 } },
+              attributes,
               verticalAlignment: 1,
-              rtfData: Buffer.from('{\\rtf1\\ansi\\ansicpg1252\\uc1'
-                + '{\\fonttbl{\\f0 HelveticaNeue;}}'
-                + '{\\colortbl;\\red255\\green255\\blue255;}'
-                + '\\pard\\qc\\f0\\fs128\\cf1 ' + escapeRtf(text) + '}'),
+              rtfData: styledRtf(text, attributes),
             },
           },
         }],
@@ -155,11 +176,11 @@ function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: p
     remapIds(cue, new Map(identities.map(value => [value.string, id().string])));
     action.label = action.label || {};
     action.label.text = item.label;
-    textElement(cue).rtfData = replaceRtf(originalText.rtfData, item.text);
+    textElement(cue).rtfData = replaceRtf(originalText, item.text);
     if (base.elements.filter((value: protobuf.ReflectedMessage) => value.element?.text).length > 1) {
       const reference = textElement(cue, true);
       const label = item.label.replace(/(\d)[a-z]+\b/g, '$1').replace(/-[a-z]+\b/g, '');
-      reference.rtfData = replaceRtf(reference.rtfData, `${label} ${versionKey}`.trimEnd());
+      reference.rtfData = replaceRtf(reference, `${label} ${versionKey}`.trimEnd());
     }
     return cue;
   });
@@ -287,7 +308,7 @@ export async function readSlideModel(filePath: string, slide?: { text: string; r
       const fontName = `${a.font?.name || font} ${a.font?.face || ''}`;
       const rgb = /\\red(\d+)\\green(\d+)\\blue(\d+)/.exec(rtf);
       item.text = {
-        content: await rtfText(text.rtfData || new Uint8Array()),
+        content: emptyRtf(rtf) ? '' : await rtfText(text.rtfData || new Uint8Array()),
         fontFamily: font,
         fontSize: a.font?.size || Number(/\\fs(\d+)/.exec(rtf)?.[1] || 84) / 2,
         color: a.textSolidFill ? cssColor(a.textSolidFill) : rgb ? `rgba(${rgb[1]},${rgb[2]},${rgb[3]},1)` : 'rgba(255,255,255,1)',
