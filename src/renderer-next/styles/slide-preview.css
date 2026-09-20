@@ -1,0 +1,39 @@
+.slide-preview {
+  position: relative;
+  width: 100%;
+  container-type: inline-size;
+  isolation: isolate;
+  overflow: visible;
+}
+.slide-preview-element {
+  position: absolute;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.slide-preview-element[data-unsupported]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  outline: 1px dashed rgb(148 163 184 / 65%);
+  outline-offset: -1px;
+}
+.slide-preview-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.slide-preview-text {
+  position: relative;
+  flex: none;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow: visible;
+  /* ponytail: browser line-height approximation; use measured ProPresenter metrics if exact parity is needed. */
+  line-height: 1.2;
+}
