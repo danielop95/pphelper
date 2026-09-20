@@ -3,3 +3,5 @@ dist/
 out/
 scratch/*.pro
 *.dmg
+scratch/bibles/
+*.bible.xml
