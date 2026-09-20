@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -92,6 +92,7 @@ function spanishError(error: unknown): string {
 }
 
 app.whenReady().then(async () => {
+  nativeTheme.themeSource = 'dark';
   if (app.isPackaged) setProtoDir(path.join(process.resourcesPath, 'proto'));
   for (const dir of ['', 'bibles', 'out']) mkdirSync(dataPath(dir), { recursive: true });
   const libraries = await listLibraries();
@@ -105,7 +106,7 @@ app.whenReady().then(async () => {
     }
   } catch { configError = 'No se pudo leer config.json. Revisa los ajustes antes de guardarlos.'; }
   window = new BrowserWindow({
-    width: 480, height: 820, minWidth: 420, minHeight: 600, alwaysOnTop: true, title: 'pphelper', backgroundColor: '#f6f5f2',
+    width: 480, height: 820, minWidth: 420, minHeight: 600, alwaysOnTop: true, title: 'pphelper', backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false,
       additionalArguments: [`--pphelper-ipc=${JSON.stringify({ ...IPC, ...EXTRA_IPC })}`],
