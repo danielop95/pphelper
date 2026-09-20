@@ -1,0 +1,58 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
+const protobuf = require('protobufjs');
+const { load, decode } = require('./proto');
+const { append } = require('./append');
+const { render, textInfo } = require('./render/render');
+(async () => {
+  const out = path.join(__dirname, 'out');
+  await fs.mkdir(out, { recursive: true });
+  const file = path.join(process.env.HOME, 'Library/Application Support/RenewedVision/ProPresenter/UserWorkspaces/ProPresenter/Libraries/Preestablecido/MEnsaje.pro');
+  const original = await fs.readFile(file);
+  const root = await load(), P = root.lookupType('rv.data.Presentation'), C = root.lookupType('rv.data.Cue'), G = root.lookupType('rv.data.Presentation.CueGroup');
+  const source = decode(P, original);
+  const fixture = decode(P, original);
+  // Campo desconocido dentro de un cue: debe sobrevivir al append.
+  const cue = C.encode(fixture.cues[0]).finish();
+  const unknown = protobuf.Writer.create().uint32((19000 << 3) | 2).string('SPIKE2-unknown').finish();
+  fixture.cues[0] = decode(C, Buffer.concat([cue, unknown]));
+  const target = path.join(out, 'append-check.pro');
+  await fs.writeFile(target, P.encode(fixture).finish());
+  const before = await fs.readFile(target);
+  await assert.rejects(append(target, []));
+  assert.deepEqual(await fs.readFile(target), before);
+  const slides = JSON.parse(await fs.readFile(path.join(__dirname, 'slides.json'), 'utf8'));
+  const result = await append(target, slides);
+  const final = decode(P, await fs.readFile(target));
+  assert(Buffer.from(C.encode(final.cues[0]).finish()).includes(Buffer.from('SPIKE2-unknown')));
+  assert.deepEqual(await fs.readFile(file), original);
+  const realTarget = path.join(out, 'MEnsaje-append-check.pro');
+  await fs.writeFile(realTarget, original);
+  const realResult = await append(realTarget, slides);
+  const prepared = decode(P, await fs.readFile(path.join(path.dirname(file), 'SPIKE2 copia.pro')));
+  source.cues.forEach((c, i) => assert.deepEqual(C.encode(c).finish(), C.encode(prepared.cues[i]).finish()));
+  source.cueGroups.forEach((g, i) => assert.deepEqual(G.encode(g).finish(), G.encode(prepared.cueGroups[i]).finish()));
+  assert.notEqual(prepared.uuid.string, source.uuid.string);
+  assert.equal(textInfo({ rtfData: Buffer.from('{\\rtf1\\ansi\\uc1{\\fonttbl{\\f0 Helvetica;}}\\pard\\qc\\fs40 A\\u241?o \\{x\\}}') }).plain, 'Año {x}');
+  // Rama de relleno e imagen: ambas habilitadas en una slide sintética.
+  const element = fixture.cues[0].actions[0].slide.presentation.baseSlide.elements[0].element;
+  element.fill.enable = true;
+  element.text.rtfData = Buffer.from('{\\rtf1\\ansi \\pard <script>alert(1)</script>}');
+  await fs.writeFile(path.join(out, 'render-check.pro'), P.encode(fixture).finish());
+  const [html] = await render(path.join(out, 'render-check.pro'));
+  const contents = await fs.readFile(html, 'utf8');
+  assert(contents.includes('rgba(33,150,242,1)'));
+  assert(contents.includes('&lt;script&gt;'));
+  const imagePath = path.join(out, 'pixel.png');
+  await fs.writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+  element.fill = { enable: true, media: { url: { absoluteString: require('node:url').pathToFileURL(imagePath).href }, image: {} } };
+  await fs.writeFile(path.join(out, 'image-check.pro'), P.encode(fixture).finish());
+  const [imageHtml] = await render(path.join(out, 'image-check.pro'));
+  assert((await fs.readFile(imageHtml, 'utf8')).includes('src="data:image/png;base64,'));
+  const evidence = { originalSha256: createHash('sha256').update(original).digest('hex'), realResult, unknownFieldResult: result,
+    preparedOriginalCuesAndGroupsUnchanged: true, emptySlidesRejected: true, originalUnchanged: true, renderChecks: true };
+  await fs.writeFile(path.join(out, 'checks.json'), JSON.stringify(evidence, null, 2));
+  console.log('OK:', JSON.stringify(evidence, null, 2));
+})().catch(e => { console.error('FALLA:', e); process.exitCode = 1; });

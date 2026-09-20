@@ -1,0 +1,18 @@
+{
+  "name": "pphelper-spike2-ui",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "smoke": "../../../node_modules/.bin/electron main.js --smoke"
+  },
+  "dependencies": {
+    "react": "^19.2.8", "react-dom": "^19.2.8", "react-aria-components": "^1.20.0",
+    "@untitledui/icons": "^0.0.22", "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3", "tailwindcss": "^4.3.3", "vite": "^8.1.5",
+    "typescript": "~5.9.3", "@types/react": "^19.2.17", "@types/react-dom": "^19.2.3", "@types/node": "^24.13.6",
+    "@tailwindcss/typography": "^0.5.20", "tailwindcss-react-aria-components": "^2.2.0", "tailwindcss-animate": "^1.0.7"
+  }
+}
