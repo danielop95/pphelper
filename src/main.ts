@@ -93,6 +93,7 @@ function spanishError(error: unknown): string {
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
+  if (!app.isPackaged) app.dock?.setIcon(path.join(app.getAppPath(), 'build/icon.png'));
   if (app.isPackaged) setProtoDir(path.join(process.resourcesPath, 'proto'));
   for (const dir of ['', 'bibles', 'out']) mkdirSync(dataPath(dir), { recursive: true });
   const libraries = await listLibraries();

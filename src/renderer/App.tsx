@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Heading } from 'react-aria-components';
@@ -10,6 +11,7 @@ import { Select } from './components/base/select/select';
 import { Checkbox } from './components/base/checkbox/checkbox';
 import { Badge } from './components/base/badges/badges';
 import { ModalOverlay, Modal, Dialog } from './components/application/modals/modal';
+import logo from './assets/logo.png';
 import './styles/globals.css';
 import './styles/app.css';
 
@@ -165,7 +167,7 @@ function App() {
   const choices = [{ name: '', path: '', library: '' }, ...templates];
   return <>
     <main className="app-content">
-      <header className="app-header"><h1>pphelper</h1><Button color="tertiary" size="sm" iconLeading={Settings01} data-testid="settings" onPress={() => setSettings(true)}>Ajustes</Button></header>
+      <header className="app-header"><h1><img src={logo} width={28} height={28} alt="" />pphelper</h1><Button color="tertiary" size="sm" iconLeading={Settings01} data-testid="settings" onPress={() => setSettings(true)}>Ajustes</Button></header>
       <form data-testid="lookup-form" onSubmit={event => { event.preventDefault(); if (!busy) void lookup(); }} className="lookup-form">
         <Input label="Referencia bíblica" placeholder="Juan 3:16-18" value={reference} onChange={setReference} data-testid="reference" isDisabled={busy} />
         <Select label="Versión" aria-label="Versión" placeholder="Elige Biblia" size="sm" data-testid="version" isDisabled={busy} selectedKey={version || null}

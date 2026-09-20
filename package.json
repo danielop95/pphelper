@@ -54,6 +54,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icon.png",
       "target": "dmg",
       "identity": null,
       "hardenedRuntime": false
