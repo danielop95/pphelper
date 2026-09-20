@@ -1,3 +1,4 @@
+import type { LocalBible } from './bibledb';
 export interface Verse {
   book: string;
   chapter: number;
@@ -37,6 +38,7 @@ export interface Config {
   /** Carpeta de biblioteca de ProPresenter cuyos .pro de una slide son plantillas. */
   templateLibrary?: string;
   lastTemplate?: string;
+  lastTarget?: string;
 }
 
 /** Elemento de una slide, en unidades de la slide (px de diseño), listo para dibujar. */
@@ -101,6 +103,13 @@ export interface PPHelperAPI {
   getConfig(): Promise<Config & { error?: string }>;
   setConfig(partial: Partial<Config>): Promise<Config>;
   listBibles(): Promise<BibleOption[]>;
+  localBibles(): Promise<LocalBible[]>;
+  importBibles(): Promise<{ imported: LocalBible[]; errors: { file: string; message: string }[] }>;
+  removeBible(id: string): Promise<Config>;
+  renameBible(id: string, abbreviation: string): Promise<Config>;
+  proTargets(): Promise<{ targets: LibraryItem[]; proPresenterRunning: boolean }>;
+  appendPro(input: { targetPath: string; ref: string; versionKey: string; template: string; slides: Slide[] }): Promise<{ backup: string; added: number; proPresenterRunning: boolean }>;
+
   listLibraries(): Promise<{ name: string; path: string }[]>;
   templates(): Promise<LibraryItem[]>;
   slideModel(file: string, slide?: { text: string; reference: string }): Promise<SlideModel>;

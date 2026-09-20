@@ -1,4 +1,4 @@
-import { app, type BrowserWindow } from 'electron';
+import { app, dialog, type BrowserWindow } from 'electron';
 import { strict as assert } from 'node:assert';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, promises as fsPromises } from 'node:fs';
@@ -163,8 +163,95 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   await type('reference', 'desconocido');
   await click('search');
   await wait(`${query('error')}.textContent.length > 0 && !${ready}`);
+  // Offline XML and append: exercise the public bridge with no API key or network.
+  const xml = dataPath('SpanishOfflineBible.xml');
+  const lines = ['<bible translation="Biblia sintética de prueba" status="Texto sintético; libre para pruebas">', '<testament name="Old">'];
+  for (let book = 1; book <= 27; book++) {
+    lines.push(`<book number="${book}">`, '<chapter number="2">');
+    for (let verse = 1; verse <= 260; verse++) lines.push(`<verse number="${verse}">${book === 1 && (verse === 2 || verse === 3) ? '' : 'Texto sintético para comprobar la importación sin conexión.'}</verse>`);
+    lines.push('</chapter>', '</book>');
+  }
+  lines.push('</testament>', '</bible>');
+  writeFileSync(xml, lines.join('\n'));
+  const invalidXml = dataPath('Invalid.xml');
+  writeFileSync(invalidXml, '<bible>');
+  const showOpenDialog = dialog.showOpenDialog;
+  const fetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => { fetchCalls++; throw new Error('Smoke: lookup local intentó usar fetch'); };
+  try {
+    await evaluate(`window.pphelper.setConfig({ versions: { OFFLINE: 'smoke-bible' }, apiBibleKey: '' })`);
+    dialog.showOpenDialog = new Proxy(showOpenDialog, { apply: async () => ({ canceled: false, filePaths: [xml, invalidXml] }) });
+    const imported = await evaluate('window.pphelper.importBibles()');
+    assert.equal(imported.imported.length, 1);
+    assert.equal(imported.errors.length, 1);
+    assert.equal(imported.errors[0].file, 'Invalid.xml');
+    assert.equal((await evaluate('window.pphelper.getConfig()')).versions['OFFLINE 2'], 'local:offline');
+    await evaluate(`window.pphelper.renameBible('offline', 'LOCAL')`);
+    assert.equal((await evaluate('window.pphelper.getConfig()')).versions.LOCAL, 'local:offline');
+    assert.equal((await evaluate('window.pphelper.getConfig()')).versions['OFFLINE 2'], undefined);
+    await evaluate(`window.pphelper.setConfig({ versions: { LOCAL: 'local:offline' }, lastTemplate: '' })`);
+    await win.loadFile(html);
+    await wait(`document.documentElement.dataset.ready === 'true'`);
+    assert(!await evaluate(`!!document.querySelector('[role="dialog"]')`), 'No debe forzar Ajustes con Biblia local sin API key');
+    assert.match(await evaluate(`window.pphelper.lookup('Génesis 3', 'LOCAL', '').then(() => '', e => e.message)`), /No hay texto.*LOCAL.*archivo importado/);
+    await type('reference', 'Génesis 2:2');
+    await click('search');
+    await wait(`${count(1)} && ${ready}`);
+    assert.match(await evaluate(`document.querySelector('.slide-heading').textContent`), /Génesis 2:1-3/);
+    // Re-create two-text template and prove the range also appears in the actual banner.
+    writeFileSync(template, typePro.encode(source).finish());
+    await wait(`!!${query('template-card')}`);
+    await click('template-card');
+    await wait(`${query('template-card')}.getAttribute('aria-pressed') === 'true' && ${ready}`);
+    await wait(`document.querySelector('[data-testid="slide-row"] [data-role="reference"]')?.textContent === 'Génesis 2:1-3 LOCAL'`);
+    const localOutput = path.join(dataPath('out'), 'Génesis 2.2 (LOCAL).pro');
+    assert.equal(await readSlideCount(localOutput), 1);
+    assert.equal((await readSlideModel(localOutput)).elements.find(e => e.role === 'reference')?.text?.content, 'Génesis 2:1-3 LOCAL');
+    await click('settings');
+    await wait(`!!${query('local-bible')}`);
+    assert.match(await evaluate(`${query('local-bible')}.textContent`), /sin conexión.*7018 versículos.*agrupados.*libre para pruebas/);
+    await evaluate('document.fonts.ready');
+    await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
+    writeFileSync(path.join(out, 'f16-settings.png'), (await win.webContents.capturePage()).toPNG());
+    await click('close-settings');
+    await wait(`!document.querySelector('[role="dialog"]')`);
+    const before = readFileSync(destination);
+    const cueType = root.lookupType('rv.data.Cue');
+    const old = typePro.decode(before) as protobuf.ReflectedMessage;
+    const oldCues = old.cues.map((cue: protobuf.ReflectedMessage) => cueType.encode(cue).finish());
+    const targets = await evaluate('window.pphelper.proTargets()');
+    assert(targets.targets.some((item: { path: string }) => item.path === destination));
+    assert(!targets.targets.some((item: { path: string }) => item.path === template));
+    assert(await evaluate(`window.pphelper.appendPro({ targetPath: ${JSON.stringify(template)}, slides: [{label: 'x', text: 'x'}], ref: 'Génesis 2:2', versionKey: 'LOCAL', template: '' }).then(() => false, () => true)`));
+    await evaluate(`window.pphelper.setConfig({ lastTarget: ${JSON.stringify(destination)} })`);
+    // Refresh config through Settings so the modal preselects the saved target.
+    await win.loadFile(html);
+    await wait(`document.documentElement.dataset.ready === 'true'`);
+    await type('reference', 'Génesis 2:2');
+    await click('search');
+    await wait(`${count(1)} && ${ready}`);
+    await click('open-append');
+    await wait(`!!${query('confirm-append')} && !${query('confirm-append')}.disabled`);
+    assert.match(await evaluate(`${query('append-target')}.textContent`), /Juan 3/);
+    await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
+    writeFileSync(path.join(out, 'f16-append.png'), (await win.webContents.capturePage()).toPNG());
+    await click('confirm-append');
+    await wait(`${query('status')}.textContent.includes('Añadidas 1 diapositivas') && !document.querySelector('[role="dialog"]')`);
+    const after = typePro.decode(readFileSync(destination)) as protobuf.ReflectedMessage;
+    assert.equal(after.cues.length, old.cues.length + 1);
+    oldCues.forEach((bytes: Uint8Array, i: number) => assert.deepEqual(cueType.encode(after.cues[i]).finish(), bytes));
+    const backups = await fsPromises.readdir(dataPath('backups'));
+    assert.equal(backups.length, 1);
+    assert.deepEqual(readFileSync(dataPath('backups', backups[0])), before);
+    assert.equal((await evaluate('window.pphelper.getConfig()')).lastTarget, destination);
+    assert.equal(fetchCalls, 0, 'Los flujos offline no deben usar fetch');
+    const removed = await evaluate(`window.pphelper.removeBible('offline')`);
+    assert(!Object.values(removed.versions).includes('local:offline'));
+    assert.deepEqual(await evaluate('window.pphelper.localBibles()'), []);
+  } finally { dialog.showOpenDialog = showOpenDialog; globalThis.fetch = fetch; }
   assert.deepEqual(errors, []);
   clearTimeout(timeout);
-  console.log('OK smoke: React, sandbox/CSP, Enter, caché, previews, overflow, unión/división, reflow, límites, watcher crear/borrar, edición conservada, clonado, biblioteca/sobrescritura, ventana mínima y captura.');
+  console.log('OK smoke: React, sandbox/CSP, Enter, caché, previews, overflow, unión/división, reflow, límites, watcher crear/borrar, edición conservada, clonado, biblioteca/sobrescritura, ventana mínima, XML local sin red/API key, rangos, append con backup y capturas.');
   app.quit();
 }

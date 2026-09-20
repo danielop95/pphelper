@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { Heading } from 'react-aria-components';
 import { Settings01, Download01, File06 } from '@untitledui/icons';
 import type { BibleOption, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel } from '../types';
+import type { LocalBible } from '../bibledb';
+import { AppendModal } from './AppendModal';
 import { SlidePreview } from './SlidePreview';
 import { Button } from './components/base/buttons/button';
 import { Input } from './components/base/input/input';
@@ -43,13 +45,15 @@ function Preview({ file, slide, version, revision }: { file?: string; slide?: Sl
   return model ? <SlidePreview model={model} /> : <div className="preview-placeholder">{error || 'Preparando vista previa…'}</div>;
 }
 function LimitFields({ limits, disabled, save }: { limits: Limits; disabled: boolean; save: (limits: Limits) => Promise<void> }) {
+  const minInput = useRef<HTMLInputElement>(null);
+  const maxInput = useRef<HTMLInputElement>(null);
   const [min, setMin] = useState(String(limits.minChars));
   const [max, setMax] = useState(String(limits.maxChars));
   useEffect(() => { setMin(String(limits.minChars)); setMax(String(limits.maxChars)); }, [limits.minChars, limits.maxChars]);
-  const commit = () => { if (min !== String(limits.minChars) || max !== String(limits.maxChars)) void save({ minChars: min === '' ? NaN : Number(min), maxChars: max === '' ? NaN : Number(max) }); };
+  const commit = () => { const min = minInput.current!.value, max = maxInput.current!.value; if (min !== String(limits.minChars) || max !== String(limits.maxChars)) void save({ minChars: min === '' ? NaN : Number(min), maxChars: max === '' ? NaN : Number(max) }); };
   return <div className="limit-fields">
-    <label>Mín.<input data-testid="min-chars" type="number" disabled={disabled} min="0" max="10000" value={min} onChange={e => setMin(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
-    <label>Máx.<input data-testid="max-chars" type="number" disabled={disabled} min="1" max="10000" value={max} onChange={e => setMax(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
+    <label>Mín.<input ref={minInput} data-testid="min-chars" type="number" disabled={disabled} min="0" max="10000" value={min} onChange={e => setMin(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
+    <label>Máx.<input ref={maxInput} data-testid="max-chars" type="number" disabled={disabled} min="1" max="10000" value={max} onChange={e => setMax(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
     <span>caracteres</span>
   </div>;
 }
@@ -69,6 +73,7 @@ function App() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('Escribe una referencia y pulsa Enter.');
+  const [append, setAppend] = useState(false);
   const [settings, setSettings] = useState(false);
   const intent = useRef(0);
   const areas = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -216,11 +221,14 @@ function App() {
       <div data-testid="drag-card" className="drag-card" draggable={!!ready} aria-disabled={!ready} onDragStart={event => { event.preventDefault(); if (ready) api.startDrag(ready.revision); }}>
         <File06 aria-hidden="true" /><div><strong>{ready?.name || (slides.length ? 'Preparando archivo…' : 'Tu presentación aparecerá aquí')}</strong><span>Arrastra a una playlist de ProPresenter</span></div>
       </div>
+      <Button color="secondary" size="sm" data-testid="open-append" isDisabled={!ready || sending} onPress={() => setAppend(true)}>Añadir a presentación…</Button>
       <div className="delivery-actions"><p role="status" data-testid="status">{status}</p><Button size="sm" iconLeading={Download01} data-testid="send-library" isDisabled={!ready || sending} onPress={async () => {
         if (!ready) return; setSending(true); setError('');
         try { await api.sendToLibrary(ready.revision); setStatus('Enviado a la biblioteca de ProPresenter.'); } catch (reason) { fail(reason); } finally { setSending(false); }
       }}>Enviar a biblioteca</Button></div>
     </footer>
+    {config && append && <AppendModal config={config} input={{ ref: loaded.ref, versionKey: loaded.version, template, slides }} close={() => setAppend(false)}
+      done={(name, added, next) => { configChanged(next); setStatus(`Añadidas ${added} diapositivas a ${name}. Copia de seguridad guardada.`); }} />}
     {config && <Settings open={settings} close={() => setSettings(false)} config={config} changed={configChanged} />}
   </>;
 }
@@ -229,17 +237,41 @@ function Settings({ open, close, config, changed }: { open: boolean; close: () =
   const [key, setKey] = useState(config.apiBibleKey);
   const [libraries, setLibraries] = useState<{ name: string; path: string }[]>([]);
   const [bibles, setBibles] = useState<BibleOption[]>([]);
+  const [locals, setLocals] = useState<LocalBible[]>([]);
+  const [removing, setRemoving] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setKey(config.apiBibleKey); api.listLibraries().then(setLibraries).catch(reason => setError(message(reason))); } }, [open]);
+  useEffect(() => { if (open) { setKey(config.apiBibleKey); api.localBibles().then(setLocals).catch(reason => setError(message(reason))); api.listLibraries().then(setLibraries).catch(reason => setError(message(reason))); } }, [open]);
   const run = async (work: () => Promise<void>) => { setBusy(true); setError(''); try { await work(); } catch (reason) { setError(message(reason)); } finally { setBusy(false); } };
   const folders = libraries.some(item => item.path === config.templateLibrary) || !config.templateLibrary ? libraries : [...libraries, { name: config.templateLibrary.split('/').at(-1) || config.templateLibrary, path: config.templateLibrary }];
   const options = [{ id: '__none', label: 'Sin biblioteca' }, ...folders.map(item => ({ id: item.path, label: item.name })), { id: '__choose', label: 'Elegir carpeta…' }];
-  const available = bibles.length ? bibles : Object.entries(config.versions).map(([key, id]) => ({ key, id, name: key }));
+  const available = bibles.length ? bibles : Object.entries(config.versions).filter(([, id]) => !id.startsWith('local:')).map(([key, id]) => ({ key, id, name: key }));
   return <ModalOverlay isOpen={open} onOpenChange={value => { if (!value) close(); }} isDismissable><Modal><Dialog>
     <div className="settings-content"><div className="section-heading"><Heading slot="title">Ajustes</Heading><Button size="sm" color="tertiary" onPress={close} data-testid="close-settings">Cerrar</Button></div>
       <div role="alert" className="error-message" hidden={!error}>{error}</div>
-      <section><h3>Biblias</h3><Input type="password" label="Clave de API.Bible" value={key} onChange={setKey} autoComplete="off" />
+      <section><h3>Biblias sin conexión</h3>
+        <p>Importa archivos XML de Biblia que tengas derecho a usar. Los textos se guardan solo en este equipo.</p>
+        <Button color="secondary" size="sm" data-testid="import-bibles" isDisabled={busy} isLoading={busy} onPress={() => { void run(async () => {
+          const result = await api.importBibles(); changed(await api.getConfig()); setLocals(await api.localBibles());
+          if (result.errors.length) setError(result.errors.map(item => `${item.file}: ${item.message}`).join('\n'));
+        }); }}>Importar XML…</Button>
+        <ul className="local-bibles">{locals.map(bible => <li key={bible.id} data-testid="local-bible">
+          <div className="local-bible-heading"><strong>{bible.name}</strong><Badge size="sm" color="gray">sin conexión</Badge></div>
+          <div className="local-bible-actions"><label>Abreviatura<input key={bible.abbreviation} aria-label={`Abreviatura de ${bible.name}`} defaultValue={bible.abbreviation} maxLength={20} disabled={busy}
+            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+            onBlur={event => { const value = event.currentTarget.value; if (value.trim() !== bible.abbreviation) void run(async () => {
+              changed(await api.renameBible(bible.id, value)); setLocals(await api.localBibles());
+            }); }} /></label><span>{bible.verses.toLocaleString('es')} versículos</span>
+            <Button color="tertiary" size="sm" isDisabled={busy} onPress={() => setRemoving(bible.id)}>Quitar</Button></div>
+          {bible.warnings.map(warning => <p key={warning}>{warning}</p>)}
+          {bible.copyright && <p>{bible.copyright}</p>}
+          {removing === bible.id && <div className="remove-confirm" role="group" aria-label="Confirmar eliminación"><p>¿Quitar {bible.abbreviation} de este equipo?</p>
+            <Button size="sm" color="secondary" isDisabled={busy} onPress={() => setRemoving('')}>Cancelar</Button>
+            <Button size="sm" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.removeBible(bible.id)); setLocals(await api.localBibles()); setRemoving(''); }); }}>Sí, quitar</Button>
+          </div>}
+        </li>)}</ul>
+      </section>
+      <section><h3>API.Bible</h3><Input type="password" label="Clave de API.Bible" value={key} onChange={setKey} autoComplete="off" />
         <div className="settings-actions"><Button size="sm" color="secondary" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); setBibles(await api.listBibles()); }); }}>Cargar Biblias</Button>
           <Button size="sm" color="tertiary" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); }); }}>Guardar clave</Button></div>
         <div className="bible-list">{available.length ? available.map(bible => <Checkbox key={bible.id} label={`${bible.key} · ${bible.name}`} isDisabled={busy} isSelected={Object.values(config.versions).includes(bible.id)} onChange={checked => { void run(async () => {
