@@ -153,16 +153,19 @@ marcadores de abajo con todas las Biblias devueltas para esa cuenta. Los IDs no
 se infieren ni se inventan. Sin clave, informa **PENDIENTE** y no hace la petición.
 
 <!-- API_BIBLE_START -->
-PENDIENTE: falta `API_BIBLE_KEY`; no hay disponibilidad ni IDs confirmados.
-Objetivos de la consulta, no resultados observados:
+OK: consulta real 2026-09-20T17:30:12.904Z; 7 Biblias devueltas para esta clave.
 
-| id | abreviatura buscada | nombre buscado |
+| id | abreviatura | nombre |
 | --- | --- | --- |
-| PENDIENTE | RVR1960 / RVR60 | Reina-Valera 1960 |
-| PENDIENTE | NVI | Nueva Versión Internacional |
-| PENDIENTE | TLA | Traducción en Lenguaje Actual |
-| PENDIENTE | PDT | Palabra de Dios para Todos |
-| PENDIENTE | RV1909 y similares | Otras Biblias en español disponibles para la cuenta |
+| 826f63861180e056-01 | NTV | Nueva Traducción Viviente |
+| 592420522e16049f-01 | RVR09 | Reina Valera 1909 |
+| 48acedcf8595c754-01 | spaPdDpt | Spanish Bible, Palabla de Dios para ti |
+| 48acedcf8595c754-02 | spaPdDpt | Spanish NT + PP, Palabla de Dios para ti |
+| b32b9d1b64b4ef29-01 | spabes | The Holy Bible in Simple Spanish |
+| 482ddd53705278cc-01 | VBL | The New Testament in Spanish, Free Bible Version |
+| 482ddd53705278cc-02 | VBL | Versión Biblia Libre |
+
+Una traducción ausente no está confirmada para esta cuenta.
 <!-- API_BIBLE_END -->
 
 ## Continuidad para el coordinador
