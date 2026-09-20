@@ -54,7 +54,7 @@ function replaceRtf(bytes: Uint8Array, text: string): Buffer {
   return Buffer.from(match[1] + escapeRtf(text) + match[3], 'latin1');
 }
 
-function buildPresentation(name: string, slides: Slide[], type: protobuf.Type): protobuf.ReflectedMessage {
+function buildPresentation(name: string, slides: Slide[], type: protobuf.Type, group = name): protobuf.ReflectedMessage {
   const white = { red: 1, green: 1, blue: 1, alpha: 1 };
   const font = { name: 'HelveticaNeue', family: 'Helvetica Neue', size: 64 };
   const cues = slides.map(({ label, text }) => ({
@@ -92,7 +92,7 @@ function buildPresentation(name: string, slides: Slide[], type: protobuf.Type): 
     uuid: id(), name,
     applicationInfo: { platform: 1, application: 1, applicationVersion: { majorVersion: 7, minorVersion: 16, patchVersion: 2 } },
     background: { isEnabled: true, color: { alpha: 1 } },
-    cueGroups: [{ group: { uuid: id(), name, color: white }, cueIdentifiers: cues.map(cue => cue.uuid) }],
+    cueGroups: [{ group: { uuid: id(), name: group, color: white }, cueIdentifiers: cues.map(cue => cue.uuid) }],
     cues,
   });
 }
@@ -103,15 +103,15 @@ function slideAction(cue: protobuf.ReflectedMessage): protobuf.ReflectedMessage 
   return actions[0];
 }
 
-function textElement(cue: protobuf.ReflectedMessage): protobuf.ReflectedMessage {
+function textElement(cue: protobuf.ReflectedMessage, smallest = false): protobuf.ReflectedMessage {
   const elements: protobuf.ReflectedMessage[] = slideAction(cue).slide.presentation.baseSlide.elements;
   let largest: protobuf.ReflectedMessage | undefined;
-  let largestArea = -1;
+  let largestArea = smallest ? Infinity : -1;
   for (const { element } of elements) {
     if (!element?.text) continue;
     const size = element.bounds?.size;
     const area = (size?.width ?? 0) * (size?.height ?? 0);
-    if (area > largestArea) {
+    if (smallest ? area <= largestArea : area > largestArea) {
       largest = element.text;
       largestArea = area;
     }
@@ -129,7 +129,7 @@ function remapIds(value: unknown, replacements: Map<string, string>): void {
   for (const child of Object.values(record)) remapIds(child, replacements);
 }
 
-function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: protobuf.Root): protobuf.ReflectedMessage {
+function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: protobuf.Root, groupName?: string, versionKey = ''): protobuf.ReflectedMessage {
   if (source.cues.length !== 1) throw new Error('Exporta una presentación con exactamente una slide');
   const original = source.cues[0];
   const originalText = textElement(original);
@@ -150,20 +150,31 @@ function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: p
     action.label = action.label || {};
     action.label.text = item.label;
     textElement(cue).rtfData = replaceRtf(originalText.rtfData, item.text);
+    if (base.elements.filter((value: protobuf.ReflectedMessage) => value.element?.text).length > 1) {
+      const reference = textElement(cue, true);
+      const label = item.label.replace(/(\d)[a-z]+\b/g, '$1').replace(/-[a-z]+\b/g, '');
+      reference.rtfData = replaceRtf(reference.rtfData, `${label} ${versionKey}`.trimEnd());
+    }
     return cue;
   });
   for (const group of output.cueGroups) {
+    if (groupName !== undefined && (!group.group?.name || group.group.name === source.name)) {
+      group.group = group.group || { uuid: id() };
+      group.group.name = groupName;
+    }
     group.cueIdentifiers = group.cueIdentifiers.flatMap((value: { string: string }) => value.string === original.uuid.string
       ? output.cues.map((cue: protobuf.ReflectedMessage) => cue.uuid) : [value]);
   }
   if (!output.cueGroups.length) {
-    output.cueGroups = [{ group: { uuid: id() }, cueIdentifiers: output.cues.map((cue: protobuf.ReflectedMessage) => cue.uuid) }];
+    output.cueGroups = [{ group: { uuid: id(), name: groupName }, cueIdentifiers: output.cues.map((cue: protobuf.ReflectedMessage) => cue.uuid) }];
   }
   return output;
 }
 
 export async function buildPro(opts: {
   name: string;
+  group?: string;
+  versionKey?: string;
   slides: Slide[];
   templatePath?: string;
   outPath: string;
@@ -177,8 +188,8 @@ export async function buildPro(opts: {
   const root = await loadProtos();
   const Presentation = root.lookupType('rv.data.Presentation');
   const output = opts.templatePath
-    ? cloneSlides(decode(Presentation, await readFile(opts.templatePath)), opts.slides, root)
-    : buildPresentation(opts.name, opts.slides, Presentation);
+    ? cloneSlides(decode(Presentation, await readFile(opts.templatePath)), opts.slides, root, opts.group, opts.versionKey)
+    : buildPresentation(opts.name, opts.slides, Presentation, opts.group);
   output.name = opts.name;
   const error = Presentation.verify(output);
   if (error) throw new Error(`Presentación no válida: ${error}`);

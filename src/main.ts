@@ -108,9 +108,11 @@ app.whenReady().then(async () => {
       validSlides(input.slides);
       if (input.slides.some(s => !s.text.trim())) throw new Error('Cada diapositiva debe contener texto.');
       if (typeof input.template !== 'string' || (input.template && !Object.hasOwn(config.templates, input.template))) throw new Error('Plantilla no reconocida.');
-      const name = `${formatRef(parseRef(input.ref))} (${input.versionKey})`;
-      const file = dataPath('out', `${name}.pro`);
-      await buildPro({ name, slides: input.slides, templatePath: input.template ? config.templates[input.template] : undefined, outPath: temporary });
+      const parsed = parseRef(input.ref);
+      const name = `${formatRef(parsed)} (${input.versionKey})`;
+      const file = dataPath('out', `${name.replace(/:/g, '.')}.pro`);
+      await buildPro({ name, group: `${parsed.bookName} ${parsed.chapter}`, versionKey: input.versionKey,
+        slides: input.slides, templatePath: input.template ? config.templates[input.template] : undefined, outPath: temporary });
       const icon = await app.getFileIcon(temporary, { size: 'normal' });
       if (icon.isEmpty()) throw new Error('No se pudo obtener el icono para arrastrar el archivo.');
       if (revision !== generation) return null;
@@ -134,10 +136,9 @@ app.whenReady().then(async () => {
     try {
       if (!statSync(config.libraryPath).isDirectory()) throw new Error('La ruta de biblioteca debe ser una carpeta.');
       const target = path.join(config.libraryPath, path.basename(prepared.file));
-      copyFileSync(prepared.file, target, constants.COPYFILE_EXCL);
+      copyFileSync(prepared.file, target);
       return target;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Ya existe una presentación con ese nombre en la biblioteca. Renómbrala o retírala antes de enviar de nuevo.');
       throw new Error(spanishError(error));
     }
   });
@@ -215,16 +216,23 @@ app.whenReady().then(async () => {
       await wait(() => document.querySelectorAll('#slides textarea').length === 2 && document.querySelector('#drag-card').draggable);
       document.querySelector('#send-library').click();
       await wait(() => document.querySelector('#status').textContent.includes('Enviado'));
+      const second = document.querySelector('#slides textarea');
+      second.value += ' Sobrescrito.'; second.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(() => document.querySelector('#drag-card').draggable);
+      document.querySelector('#status').textContent = '';
       document.querySelector('#send-library').click();
-      await wait(() => document.querySelector('#error').textContent.includes('Ya existe'));
+      await wait(() => document.querySelector('#status').textContent.includes('Enviado'));
+      assert(!document.querySelector('#error').textContent, 'Falló la sobrescritura');
       document.querySelector('#reference').value = 'desconocido';
       document.querySelector('#lookup-form').requestSubmit();
       await wait(() => !!document.querySelector('#error').textContent);
       assert(!document.querySelector('#drag-card').draggable, 'Un error dejó un archivo antiguo arrastrable');
       return true;
     })()`);
-    if (!result || !window.isAlwaysOnTop() || await readSlideCount(path.join(library, 'Juan 3:16-17 (PRUEBA).pro')) !== 2) throw new Error('Smoke de ventana o archivo falló.');
-    console.log('OK smoke: ventana visible, sandbox, IPC, caché, edición/debounce, unión, división, biblioteca sin sobrescritura y .pro de 2 slides. Drop manual no probado.');
+    const libraryFile = path.join(library, 'Juan 3.16-17 (PRUEBA).pro');
+    if (!result || !window.isAlwaysOnTop() || await readSlideCount(libraryFile) !== 2
+      || !readFileSync(libraryFile).includes(Buffer.from('Sobrescrito.'))) throw new Error('Smoke de ventana o archivo falló.');
+    console.log('OK smoke: ventana visible, sandbox, IPC, caché, edición/debounce, unión, división, biblioteca con sobrescritura y .pro de 2 slides. Drop manual no probado.');
     app.quit();
   }
 }).catch(error => { console.error(spanishError(error)); app.exit(1); });

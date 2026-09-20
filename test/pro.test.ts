@@ -21,10 +21,12 @@ test('genera dos slides con labels, RTF y estilo fijo', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-pro-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const outPath = path.join(dir, 'nueva', 'versos.pro');
-  assert.equal(await buildPro({ name: 'Lectura', slides, outPath }), outPath);
+  const options = { name: 'Lectura', group: 'Juan 3', slides, outPath };
+  assert.equal(await buildPro(options), outPath);
   const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
   const presentation = decode(root.lookupType('rv.data.Presentation'), await readFile(outPath));
   assert.equal(presentation.name, 'Lectura');
+  assert.equal(presentation.cueGroups[0].group.name, 'Juan 3');
   assert.equal(await readSlideCount(outPath), 2);
   assert.equal(presentation.cues.length, 2);
   for (const [index, cue] of presentation.cues.entries()) {
@@ -89,7 +91,7 @@ test('clona el texto de mayor área y conserva los demás campos y referencias',
     const slide = cue.actions[0].slide.presentation.baseSlide;
     assert.equal(cue.actions[0].label.text, slides[index].label);
     assert.deepEqual(cue.$unknowns, original.$unknowns);
-    assert.deepEqual(slide.elements[0].element.text, base.elements[0].element.text);
+    assert.ok(Buffer.from(slide.elements[0].element.text.rtfData).toString().includes(slides[index].label));
     const rtf = Buffer.from(slide.elements[1].element.text.rtfData).toString();
     assert.ok(rtf.includes(index === 0 ? slides[0].text : 'Salvaci\\u243?n'));
     assert.ok(!rtf.includes('\\u193'), 'El acento inicial del texto original también se sustituye');
@@ -110,8 +112,42 @@ test('clona el texto de mayor área y conserva los demás campos y referencias',
     }
     restore(cue);
     cue.actions[0].label.text = original.actions[0].label.text;
+    slide.elements[0].element.text.rtfData = base.elements[0].element.text.rtfData;
     slide.elements[1].element.text.rtfData = base.elements[1].element.text.rtfData;
     assert.deepEqual(Cue.encode(cue).finish(), Cue.encode(original).finish());
+  }
+});
+
+test('la plantilla recibe referencia sin sufijos y versión en el texto menor', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'pphelper-reference-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const templatePath = path.join(dir, 'plantilla.pro');
+  const outPath = path.join(dir, 'salida.pro');
+  await buildPro({ name: 'Plantilla', slides: slides.slice(0, 1), outPath: templatePath });
+  const root = await protobuf.load(path.join(PROTO_DIR, 'presentation.proto'));
+  const Presentation = root.lookupType('rv.data.Presentation');
+  const source = decode(Presentation, await readFile(templatePath));
+  const small = decode(Presentation, await readFile(templatePath)).cues[0].actions[0]
+    .slide.presentation.baseSlide.elements[0];
+  small.element.bounds.size = { width: 400, height: 80 };
+  small.element.uuid.string = 'REFERENCE';
+  source.cues[0].actions[0].slide.presentation.baseSlide.elements.push(small);
+  const labels = ['Juan 3:16a-b', 'Juan 3:16a', 'Juan 3:16aa-ab', 'Juan 3:16a-17b'];
+  const options = { name: 'Juan 3:16-17 (NTV)', group: 'Juan 3', versionKey: 'NTV',
+    slides: labels.map(label => ({ label, text: 'Texto del versículo' })), templatePath, outPath };
+  for (const groupName of ['Plantilla', '', 'Mi grupo']) {
+    source.cueGroups[0].group.name = groupName;
+    await writeFile(templatePath, Presentation.encode(source).finish());
+    await buildPro(options);
+    const output = decode(Presentation, await readFile(outPath));
+    assert.equal(output.cueGroups[0].group.name, groupName === 'Mi grupo' ? 'Mi grupo' : 'Juan 3');
+    for (const [index, cue] of output.cues.entries()) {
+      const elements = cue.actions[0].slide.presentation.baseSlide.elements;
+      assert.ok(Buffer.from(elements[0].element.text.rtfData).toString().includes('Texto del vers'));
+      assert.ok(Buffer.from(elements[1].element.text.rtfData).toString()
+        .endsWith(`${index === 3 ? 'Juan 3:16-17' : 'Juan 3:16'} NTV}`));
+      assert.equal(cue.actions[0].label.text, labels[index]);
+    }
   }
 });
 
