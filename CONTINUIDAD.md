@@ -16,6 +16,7 @@ Verificado esta sesión:
 - App real sin clave de API.Bible: `Juan 3:16-18` en las cuatro; TLA `Génesis 2:1-4` → labels `Génesis 2:1-3 | Génesis 2:4`; `1 Crónicas 6` en TLA → mensaje claro.
 - `appendPro` real sobre `SPIKE2 copia`: backup creado, 9 cues previos byte-idénticos, grupo nuevo `Salmos 23`, sin temporales, `MEnsaje.pro` intacto (sha256 `10459dc7…`).
 - Icono `.icns` empaquetado revisado visualmente.
+- "Añadir a presentación" confirmado en ProPresenter 21.4 tras reinicio (cerrado por el usuario): `SPIKE2 copia` muestra 11 slides, la 10 es `Salmos 23:1-3` NVI añadida desde la app, previas intactas. Nota: ProPresenter pide confirmación al salir; el cierre por AppleScript no es fiable.
 
 Hechos no obvios:
 - ProPresenter lee un `.pro` del disco solo la PRIMERA vez que se abre esa presentación en la sesión (probado: cerrado → aparece; abierto sin haberla seleccionado → aparece; ya abierta antes → no se actualiza hasta reiniciar). No acepta archivos soltados en la rejilla de slides. Si guarda después su copia en memoria, puede pisar lo añadido.
@@ -25,7 +26,6 @@ Hechos no obvios:
 - El smoke fallaba ~1 de 4 por comparar contra estado de React obsoleto en `LimitFields`; ahora lee los inputs.
 
 Pendiente:
-- Verificación visual final de "Añadir a presentación": reiniciar ProPresenter y abrir `SPIKE2 copia` (debe mostrar 10 slides). Dos intentos de cierre por AppleScript fallaron (timeout y "Cancelado por el usuario"); no se forzó el proceso.
 - Borrar `SPIKE2 copia.pro` de `Preestablecido` tras esa verificación (con confirmación del usuario).
 - Banner real de la iglesia como plantilla para validar el clonado con diseño real.
 - Instalar el `.dmg` en una Mac limpia.
