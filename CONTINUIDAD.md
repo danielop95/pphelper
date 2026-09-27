@@ -2,6 +2,23 @@
 
 Plan vigente: `~/.claude/plans/contexto-en-mi-iglesia-majestic-corbato.md` (fase 1.6, ejecutada). Fases 2 y 3 sin plan.
 
+## 2026-09-26
+
+Realizado (en `main`, publicado en https://github.com/danielop95/pphelper, público):
+- Bug: ProPresenter guarda un texto RTF vacío en TODOS los elementos, también imágenes. Un fondo PNG a lienzo completo ganaba por área y recibía el versículo. `textElement`/`readSlideModel` prefieren cajas sin `fill.media` (si no hay otra, usan la de imagen).
+- Selector manual de caja Versículo/Cita por plantilla (`Config.templateRoles`, índices en `SlideModel.elements`); aplica a vista previa, generar y añadir.
+- Aviso de versión nueva: al abrir consulta `releases/latest` de GitHub y ofrece abrir la página. Sin firma no hay auto-instalación.
+- Versión 0.2.0, release `v0.2.0` con el `.dmg` arm64.
+
+Verificado: build, test 34/34, smoke OK. Plantilla real `Versiculos.pro` (Preestablecido): usuario confirmó en ProPresenter `Prueba fix.pro` y `Prueba fix 2.pro` bien.
+
+Decisiones: Biblias solo por importación manual (sin preinstalar por licencias). Actualización sin firma (camino 1); firmar requiere Apple Developer.
+
+Pendiente:
+- Borrar `Prueba fix.pro`, `Prueba fix 2.pro`, `Juan 3.16 (NTV).pro` y `SPIKE2 copia.pro` de `Preestablecido` (con confirmación del usuario).
+- Probar el selector manual en la UI real y el aviso de actualización con una release 0.2.1.
+- Publicar una versión: subir `version` en `package.json`, `npm run dist`, `gh release create vX.Y.Z out/pphelper-X.Y.Z-arm64.dmg`.
+
 ## 2026-09-20
 
 Realizado (todo en `main`):
