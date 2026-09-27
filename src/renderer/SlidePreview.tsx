@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { SlideElement, SlideModel } from '../types';
 import './styles/slide-preview.css';
 
-function PreviewElement({ element, model }: { element: SlideElement; model: SlideModel }) {
+function PreviewElement({ element, model, layer }: { element: SlideElement; model: SlideModel; layer: number }) {
   const box = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
@@ -36,7 +36,7 @@ function PreviewElement({ element, model }: { element: SlideElement; model: Slid
     style={{
       left: `${element.x / model.width * 100}%`, top: `${element.y / model.height * 100}%`,
       width: `${element.width / model.width * 100}%`, height: `${element.height / model.height * 100}%`,
-      opacity: element.opacity, backgroundColor: element.fill,
+      opacity: element.opacity, backgroundColor: element.fill, zIndex: layer,
       justifyContent: text?.verticalAlign === 'bottom' ? 'flex-end' : text?.verticalAlign === 'middle' ? 'center' : 'flex-start',
     }}>
     {element.image?.startsWith('data:image/') && <img className="slide-preview-image" src={element.image} alt="" />}
@@ -52,6 +52,7 @@ function PreviewElement({ element, model }: { element: SlideElement; model: Slid
 export function SlidePreview({ model, className }: { model: SlideModel; className?: string }) {
   return <div className={`slide-preview${className ? ` ${className}` : ''}`} data-slide-preview
     style={{ aspectRatio: `${model.width} / ${model.height}`, backgroundColor: model.background }}>
-    {model.elements.map((element, index) => <PreviewElement key={index} element={element} model={model} />)}
+    {/* ProPresenter guarda los elementos de delante hacia atrás: el primero va encima. */}
+    {model.elements.map((element, index) => <PreviewElement key={index} element={element} model={model} layer={model.elements.length - index} />)}
   </div>;
 }
