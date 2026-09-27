@@ -4,7 +4,7 @@ import type { IPC, Config, Slide, PPHelperAPI } from './types';
 // Sandbox preloads cannot require local modules. Main passes constants, never secrets.
 const channels = JSON.parse(process.argv.find(value => value.startsWith('--pphelper-ipc='))!.slice('--pphelper-ipc='.length)) as typeof IPC & {
   local: string; importBibles: string; removeBible: string; renameBible: string; targets: string; append: string;
-  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string;
+  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string; update: string; openUpdate: string;
 };
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, value: T) => callback(value);
@@ -33,6 +33,8 @@ const api: PPHelperAPI = {
   editSlides: (slides: Slide[], index: number, position?: number) => ipcRenderer.invoke(channels.edit, slides, index, position),
   onDragError: callback => subscribe(channels.dragError, callback),
   onTemplatesChanged: callback => subscribe(channels.templatesChanged, callback),
+  checkUpdate: () => ipcRenderer.invoke(channels.update),
+  openUpdate: () => ipcRenderer.invoke(channels.openUpdate),
 };
 contextBridge.exposeInMainWorld('pphelper', api);
 

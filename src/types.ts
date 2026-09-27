@@ -126,4 +126,6 @@ export interface PPHelperAPI {
   editSlides(slides: Slide[], index: number, position?: number): Promise<Slide[]>;
   onDragError(callback: (message: string) => void): () => void;
   onTemplatesChanged(callback: () => void): () => void;
+  checkUpdate(): Promise<{ version: string } | null>;
+  openUpdate(): Promise<void>;
 }

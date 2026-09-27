@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { openDb, importXml, listBibles, removeBible, renameBible, localVerses, type LocalBible } from './bibledb';
@@ -11,7 +11,14 @@ import { listLibraries, listTemplates, watchDir } from './library';
 import { runSmoke } from './smoke';
 import { IPC, type Config, type Slide, type TextRoles, type Verse } from './types';
 
-const EXTRA_IPC = { local: 'bibles:local', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error' } as const;
+const EXTRA_IPC = { local: 'bibles:local', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update' } as const;
+const RELEASES = 'https://github.com/danielop95/pphelper/releases';
+let updateUrl = '';
+function newer(latest: string, current: string): boolean {
+  const a = latest.split('.').map(Number), b = current.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return false;
+}
 const smoke = process.argv.includes('--smoke');
 const smokeDir = smoke ? mkdtempSync(path.join(tmpdir(), 'pphelper-smoke-')) : undefined;
 if (smokeDir) app.setPath('userData', smokeDir);
@@ -319,6 +326,24 @@ app.whenReady().then(async () => {
         return { id: b.id, key, name: b.name };
       });
     } catch (error) { throw new Error(spanishError(error)); }
+  });
+  ipcMain.handle(EXTRA_IPC.update, async event => {
+    checkSender(event);
+    if (smoke) return null;
+    // ponytail: sin firma no hay auto-instalación; solo se avisa y se abre la release.
+    try {
+      const response = await fetch('https://api.github.com/repos/danielop95/pphelper/releases/latest', { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
+      if (!response.ok) return null;
+      const release = await response.json() as { tag_name?: string; html_url?: string };
+      const version = String(release.tag_name || '').replace(/^v/, '');
+      if (!/^\d+\.\d+\.\d+$/.test(version) || !newer(version, app.getVersion())) return null;
+      updateUrl = typeof release.html_url === 'string' && release.html_url.startsWith(`${RELEASES}/`) ? release.html_url : RELEASES;
+      return { version };
+    } catch { return null; }
+  });
+  ipcMain.handle(EXTRA_IPC.openUpdate, event => {
+    checkSender(event);
+    if (updateUrl) void shell.openExternal(updateUrl);
   });
   if (smoke) await runSmoke(window, dataPath);
   else await window.loadFile(path.join(app.getAppPath(), 'dist/renderer/index.html'));

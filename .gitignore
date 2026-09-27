@@ -5,3 +5,4 @@ scratch/*.pro
 *.dmg
 scratch/bibles/
 *.bible.xml
+.DS_Store

@@ -87,6 +87,8 @@ function App() {
   const [templates, setTemplates] = useState<LibraryItem[]>([]);
   const [templateRevision, setTemplateRevision] = useState(0);
   const [templateModel, setTemplateModel] = useState<SlideModel>();
+  const [update, setUpdate] = useState<string>();
+  useEffect(() => { api.checkUpdate().then(next => setUpdate(next?.version)).catch(() => {}); }, []);
   const [slides, setSlides] = useState<Slide[]>([]);
   const [loaded, setLoaded] = useState({ ref: '', version: '' });
   const [edited, setEdited] = useState(false);
@@ -202,6 +204,8 @@ function App() {
   return <>
     <main className="app-content">
       <header className="app-header"><h1><img src={logo} width={28} height={28} alt="" />pphelper</h1><Button color="tertiary" size="sm" iconLeading={Settings01} data-testid="settings" onPress={() => setSettings(true)}>Ajustes</Button></header>
+      {update && <div className="update-banner" data-testid="update-banner"><span>Hay una versión nueva: {update}</span>
+        <Button size="sm" color="secondary" onPress={() => { void api.openUpdate(); }}>Descargar</Button></div>}
       <form data-testid="lookup-form" onSubmit={event => { event.preventDefault(); if (!busy) void lookup(); }} className="lookup-form">
         <Input label="Referencia bíblica" placeholder="Juan 3:16-18" value={reference} onChange={setReference} data-testid="reference" isDisabled={busy} />
         <Select label="Versión" aria-label="Versión" placeholder="Elige Biblia" size="sm" data-testid="version" isDisabled={busy} selectedKey={version || null}
