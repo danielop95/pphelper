@@ -319,6 +319,7 @@ function Settings({ open, close, config, changed }: { open: boolean; close: () =
       }); }}>{item => <Select.Item id={item.id}>{item.label}</Select.Item>}</Select>
         <p>Se muestran los archivos .pro de una sola diapositiva. Los cambios en la carpeta se sincronizan automáticamente.</p>
         {config.templateLibrary && <p className="folder-path">{config.templateLibrary}</p>}
+        {config.templateLibrary && config.templateLibrary === config.libraryPath && <p className="migration-notice" data-testid="shared-library-notice">Las plantillas y los envíos usan la misma biblioteca: cada presentación de una diapositiva aparecerá como plantilla. Crea en ProPresenter una biblioteca solo para plantillas y elígela aquí.</p>}
         {!config.templateLibrary && Object.keys(config.templates).length > 0 && <p className="migration-notice" data-testid="legacy-notice">Tus plantillas anteriores siguen guardadas. Elige su carpeta como biblioteca para usarlas; no se ha borrado ningún archivo.</p>}
       </section>
       <section><h3>Destino de la presentación</h3><p className="folder-path">{config.libraryPath || 'Ninguna biblioteca seleccionada'}</p><Button color="secondary" size="sm" isDisabled={busy} onPress={() => { void run(async () => { const next = await api.chooseLibrary('libraryPath'); if (next) changed(next); }); }}>Elegir biblioteca de destino</Button></section>
