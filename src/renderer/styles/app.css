@@ -26,6 +26,9 @@ h2 span { margin-left: 5px; }
 .limit-fields label { display: flex; flex-direction: column; gap: 3px; }
 .limit-fields input { border: 1px solid var(--color-border-primary); background: var(--color-bg-secondary); width: 100%; min-width: 0; border-radius: 5px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
 .limit-fields > span { grid-column: 1 / -1; color: var(--color-text-tertiary); }
+.role-fields { padding: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+.role-fields label { display: flex; flex-direction: column; gap: 3px; }
+.role-fields select { border: 1px solid var(--color-border-primary); background: var(--color-bg-secondary); width: 100%; min-width: 0; border-radius: 5px; padding: 4px 6px; }
 .slide-list { margin: 0; padding: 0; list-style: none; }
 .slide-row { margin-bottom: 24px; }
 .slide-heading { margin-bottom: 8px; font-size: 13px; font-weight: 600; }

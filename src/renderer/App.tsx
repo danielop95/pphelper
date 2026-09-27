@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Heading } from 'react-aria-components';
 import { Settings01, Download01, File06 } from '@untitledui/icons';
-import type { BibleOption, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel } from '../types';
+import type { BibleOption, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel, TextRoles } from '../types';
 import type { LocalBible } from '../bibledb';
 import { AppendModal } from './AppendModal';
 import { SlidePreview } from './SlidePreview';
@@ -28,7 +28,7 @@ function plainModel(text: string): SlideModel {
     text: { content: text, fontFamily: 'Helvetica Neue', fontSize: 64, color: '#ffffff', bold: false, italic: false, align: 'center', verticalAlign: 'middle' },
   }] };
 }
-function Preview({ file, slide, version, revision }: { file?: string; slide?: Slide; version?: string; revision: number }) {
+function Preview({ file, slide, version, revision, roles, onModel }: { file?: string; slide?: Slide; version?: string; revision: number; roles?: TextRoles; onModel?: (model: SlideModel) => void }) {
   const [model, setModel] = useState<SlideModel>();
   const [error, setError] = useState('');
   useEffect(() => {
@@ -36,12 +36,12 @@ function Preview({ file, slide, version, revision }: { file?: string; slide?: Sl
     setModel(undefined); setError('');
     if (!file) { setModel(plainModel(slide?.text ?? 'Tu palabra es una lámpara a mis pies.')); return; }
     const timer = setTimeout(() => {
-      api.slideModel(file, slide ? { text: slide.text, reference: `${slide.label.replace(/(\d)[a-z]+\b/g, '$1').replace(/-[a-z]+\b/g, '')} ${version || ''}`.trimEnd() } : undefined)
-        .then(next => { if (active) setModel(next); })
+      api.slideModel(file, slide ? { text: slide.text, reference: `${slide.label.replace(/(\d)[a-z]+\b/g, '$1').replace(/-[a-z]+\b/g, '')} ${version || ''}`.trimEnd() } : undefined, roles)
+        .then(next => { if (active) { setModel(next); onModel?.(next); } })
         .catch(reason => { if (active) setError(message(reason)); });
     }, slide ? 150 : 0);
     return () => { active = false; clearTimeout(timer); };
-  }, [file, slide?.text, slide?.label, version, revision]);
+  }, [file, slide?.text, slide?.label, version, revision, roles?.verse, roles?.reference]);
   return model ? <SlidePreview model={model} /> : <div className="preview-placeholder">{error || 'Preparando vista previa…'}</div>;
 }
 function LimitFields({ limits, disabled, save }: { limits: Limits; disabled: boolean; save: (limits: Limits) => Promise<void> }) {
@@ -58,6 +58,27 @@ function LimitFields({ limits, disabled, save }: { limits: Limits; disabled: boo
   </div>;
 }
 
+function RoleFields({ elements, roles, disabled, save }: { elements: SlideModel['elements']; roles?: TextRoles; disabled: boolean; save: (roles: TextRoles) => Promise<void> }) {
+  const texts = elements.map((element, index) => ({ index, element })).filter(item => item.element.text);
+  if (texts.length < 2) return null;
+  const verse = roles?.verse ?? texts.find(item => item.element.role === 'verse')?.index ?? texts[0].index;
+  const reference = roles?.reference ?? texts.find(item => item.element.role === 'reference')?.index;
+  const label = (index: number) => `Caja ${index + 1} (${Math.round(elements[index].width)}×${Math.round(elements[index].height)})`;
+  return <div className="role-fields">
+    <label>Versículo
+      <select data-testid="role-verse" disabled={disabled} value={verse} onChange={event => { void save({ verse: Number(event.target.value), reference }); }}>
+        {texts.map(item => <option key={item.index} value={item.index}>{label(item.index)}</option>)}
+      </select>
+    </label>
+    <label>Cita
+      <select data-testid="role-reference" disabled={disabled} value={reference ?? ''} onChange={event => { void save({ verse, reference: event.target.value === '' ? undefined : Number(event.target.value) }); }}>
+        <option value="">Ninguna</option>
+        {texts.map(item => <option key={item.index} value={item.index}>{label(item.index)}</option>)}
+      </select>
+    </label>
+  </div>;
+}
+
 function App() {
   const [config, setConfig] = useState<Config>();
   const [reference, setReference] = useState('');
@@ -65,6 +86,7 @@ function App() {
   const [template, setTemplate] = useState('');
   const [templates, setTemplates] = useState<LibraryItem[]>([]);
   const [templateRevision, setTemplateRevision] = useState(0);
+  const [templateModel, setTemplateModel] = useState<SlideModel>();
   const [slides, setSlides] = useState<Slide[]>([]);
   const [loaded, setLoaded] = useState({ ref: '', version: '' });
   const [edited, setEdited] = useState(false);
@@ -135,7 +157,7 @@ function App() {
     finally { if (current === intent.current) setBusy(false); }
   }
   async function selectTemplate(name: string) {
-    const current = invalidate(); setBusy(true); setTemplate(name); setError('');
+    const current = invalidate(); setBusy(true); setTemplate(name); setTemplateModel(undefined); setError('');
     try {
       const next = await api.setConfig({ lastTemplate: name });
       if (current !== intent.current) return;
@@ -161,6 +183,12 @@ function App() {
     } catch (reason) { fail(reason); }
     finally { setBusy(false); }
   }
+  async function saveRoles(roles: TextRoles) {
+    setBusy(true); setError('');
+    try { setConfig(await api.setConfig({ templateRoles: { ...config?.templateRoles, [template]: roles } })); }
+    catch (reason) { fail(reason); }
+    finally { setBusy(false); }
+  }
   function configChanged(next: Config) {
     setConfig(next);
     if (!Object.hasOwn(next.versions, version)) {
@@ -169,6 +197,7 @@ function App() {
   }
   const selectedFile = templates.find(item => item.name === template)?.path;
   const limits = config?.templateLimits?.[template] ?? { minChars: config?.minChars ?? 80, maxChars: config?.maxChars ?? 180 };
+  const roles = config?.templateRoles?.[template];
   const choices = [{ name: '', path: '', library: '' }, ...templates];
   return <>
     <main className="app-content">
@@ -189,10 +218,11 @@ function App() {
           {choices.map(item => <div key={item.path} className={`template-card${template === item.name ? ' selected' : ''}`}>
             <button type="button" data-testid={item.name ? 'template-card' : 'no-template'} data-template={item.name} aria-pressed={template === item.name} disabled={busy}
               onClick={() => { void selectTemplate(item.name); }}>
-              <Preview file={item.path || undefined} revision={templateRevision} />
+              <Preview file={item.path || undefined} revision={templateRevision} roles={roles} onModel={template === item.name ? setTemplateModel : undefined} />
               <span className="template-name">{item.name || 'Sin plantilla'}</span>
             </button>
             {template === item.name && <LimitFields limits={limits} disabled={busy} save={saveLimits} />}
+            {template === item.name && templateModel && <RoleFields elements={templateModel.elements} roles={roles} disabled={busy} save={saveRoles} />}
           </div>)}
         </div>
       </section>
@@ -204,7 +234,7 @@ function App() {
         {!slides.length && <div className="empty-state"><File06 aria-hidden="true" /><p>{busy ? 'Buscando tu pasaje…' : 'Tu próximo pasaje, listo para proyectar'}</p><span>Busca una referencia para revisar y ajustar sus diapositivas.</span></div>}
         <ol className="slide-list" data-testid="slides">{slides.map((slide, index) => <li className="slide-row" key={index} data-testid="slide-row">
           <div className="slide-heading"><label htmlFor={`slide-${index}`}>{index + 1}. {slide.label}</label><span className="overflow-badge" data-testid="overflow-badge"><Badge color="warning">No cabe</Badge></span></div>
-          <Preview file={selectedFile} slide={slide} version={loaded.version} revision={templateRevision} />
+          <Preview file={selectedFile} slide={slide} version={loaded.version} revision={templateRevision} roles={roles} />
           <textarea id={`slide-${index}`} data-testid="slide-text" ref={node => { areas.current[index] = node; }} value={slide.text} rows={3} disabled={busy}
             onChange={event => { invalidate(); setError(''); setEdited(true); setSlides(slides.map((s, i) => i === index ? { ...s, text: event.target.value } : s)); }} />
           <div className="slide-actions"><Button size="sm" color="tertiary" data-testid="merge" isDisabled={busy || index === slides.length - 1} onPress={() => { void edit(index); }}>Unir con siguiente</Button>

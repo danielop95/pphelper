@@ -9,7 +9,7 @@ import { mergeSlides, splitSlide, toSlides } from './split';
 import { appendToPro, buildPro, readSlideModel, setProtoDir } from './pro';
 import { listLibraries, listTemplates, watchDir } from './library';
 import { runSmoke } from './smoke';
-import { IPC, type Config, type Slide, type Verse } from './types';
+import { IPC, type Config, type Slide, type TextRoles, type Verse } from './types';
 
 const EXTRA_IPC = { local: 'bibles:local', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error' } as const;
 const smoke = process.argv.includes('--smoke');
@@ -75,6 +75,7 @@ function validateConfig(value: Config): void {
   if (!Object.values(value.versions).every(id => /^(?:local:)?[\w-]+$/.test(id))) throw new Error('Identificador de Biblia inválido.');
   if (value.minChars !== undefined && (!Number.isSafeInteger(value.minChars) || value.minChars < 0 || value.minChars > value.maxChars)) throw new Error('El mínimo debe estar entre cero y el máximo.');
   if (value.templateLimits !== undefined && (!value.templateLimits || typeof value.templateLimits !== 'object' || Array.isArray(value.templateLimits) || !Object.entries(value.templateLimits).every(([name, limits]) => name.length <= 255 && limits && Number.isSafeInteger(limits.minChars) && Number.isSafeInteger(limits.maxChars) && limits.minChars >= 0 && limits.maxChars >= 1 && limits.maxChars <= 10000 && limits.minChars <= limits.maxChars))) throw new Error('Los límites de plantilla deben ser enteros: 0 ≤ mínimo ≤ máximo ≤ 10000.');
+  if (value.templateRoles !== undefined && (!value.templateRoles || typeof value.templateRoles !== 'object' || Array.isArray(value.templateRoles) || !Object.entries(value.templateRoles).every(([name, roles]) => name.length <= 255 && roles && Number.isSafeInteger(roles.verse) && roles.verse >= 0 && (roles.reference === undefined || (Number.isSafeInteger(roles.reference) && roles.reference >= 0))))) throw new Error('Las cajas de versículo/cita elegidas para la plantilla son inválidas.');
   if (value.lastTarget !== undefined && (typeof value.lastTarget !== 'string' || (value.lastTarget !== '' && !path.isAbsolute(value.lastTarget)))) throw new Error('Presentación de destino inválida.');
   if (value.lastTemplate !== undefined && (typeof value.lastTemplate !== 'string' || value.lastTemplate.length > 255)) throw new Error('Plantilla no reconocida.');
   if (value.templateLibrary !== undefined && (typeof value.templateLibrary !== 'string' || (value.templateLibrary !== '' && !path.isAbsolute(value.templateLibrary)))) throw new Error('Elige una ruta absoluta para las plantillas.');
@@ -156,7 +157,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC.config, event => { checkSender(event); return { ...config, error: configError }; });
   ipcMain.handle(IPC.configSet, (event, partial: Partial<Config>) => {
     checkSender(event);
-    if (!partial || typeof partial !== 'object' || Array.isArray(partial) || Object.keys(partial).some(k => !['apiBibleKey', 'versions', 'minChars', 'maxChars', 'libraryPath', 'templateLibrary', 'templateLimits', 'lastTemplate', 'lastTarget'].includes(k))) throw new Error('Ajuste no admitido.');
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial) || Object.keys(partial).some(k => !['apiBibleKey', 'versions', 'minChars', 'maxChars', 'libraryPath', 'templateLibrary', 'templateLimits', 'templateRoles', 'lastTemplate', 'lastTarget'].includes(k))) throw new Error('Ajuste no admitido.');
     try { const saved = saveConfig({ ...config, ...partial }); configError = ''; return saved; }
     catch (error) { throw new Error(spanishError(error)); }
   });
@@ -207,7 +208,7 @@ app.whenReady().then(async () => {
       if (typeof input.ref !== 'string' || input.ref.length > 200) throw new Error('Referencia inválida.');
       const parsed = parseRef(input.ref);
       const result = await appendToPro({ targetPath: target, slides: input.slides, group: `${parsed.bookName} ${parsed.chapter}`,
-        versionKey: input.versionKey, templatePath: await templatePath(input.template), backupDir: dataPath('backups') });
+        versionKey: input.versionKey, templatePath: await templatePath(input.template), roles: config.templateRoles?.[input.template], backupDir: dataPath('backups') });
       saveConfig({ ...config, lastTarget: input.targetPath });
       return { ...result, proPresenterRunning: await proPresenterRunning() };
     } catch (error) { throw new Error(spanishError(error)); }
@@ -240,11 +241,12 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle(IPC.templates, event => { checkSender(event); return templates(); });
   ipcMain.handle(EXTRA_IPC.libraries, event => { checkSender(event); return listLibraries(); });
-  ipcMain.handle(IPC.slideModel, async (event, file: string, slide?: { text: string; reference: string }) => {
+  ipcMain.handle(IPC.slideModel, async (event, file: string, slide?: { text: string; reference: string }, roles?: TextRoles) => {
     checkSender(event);
     if (typeof file !== 'string' || !(await templates()).some(item => item.path === file)) throw new Error('Plantilla no reconocida.');
     if (slide && (typeof slide.text !== 'string' || typeof slide.reference !== 'string' || slide.text.length > 100000 || slide.reference.length > 700)) throw new Error('Texto de vista previa inválido.');
-    try { return await readSlideModel(file, slide); } catch (error) { throw new Error(spanishError(error)); }
+    if (roles !== undefined && (!roles || !Number.isSafeInteger(roles.verse) || roles.verse < 0 || (roles.reference !== undefined && (!Number.isSafeInteger(roles.reference) || roles.reference < 0)))) throw new Error('Selección de caja inválida.');
+    try { return await readSlideModel(file, slide, roles); } catch (error) { throw new Error(spanishError(error)); }
   });
   ipcMain.handle(EXTRA_IPC.edit, (event, slides: Slide[], index: number, position?: number) => {
     checkSender(event); validSlides(slides);
@@ -264,7 +266,7 @@ app.whenReady().then(async () => {
       const name = `${formatRef(parsed)} (${input.versionKey})`;
       const file = dataPath('out', `${name.replace(/:/g, '.')}.pro`);
       await buildPro({ name, group: `${parsed.bookName} ${parsed.chapter}`, versionKey: input.versionKey,
-        slides: input.slides, templatePath: selectedTemplate, outPath: temporary });
+        slides: input.slides, templatePath: selectedTemplate, roles: config.templateRoles?.[input.template], outPath: temporary });
       const icon = await app.getFileIcon(temporary, { size: 'normal' });
       if (icon.isEmpty()) throw new Error('No se pudo obtener el icono para arrastrar el archivo.');
       if (revision !== generation) return null;

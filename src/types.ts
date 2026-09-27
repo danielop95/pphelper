@@ -25,6 +25,12 @@ export interface Limits {
   maxChars: number;
 }
 
+/** Índices (en SlideModel.elements) de las cajas de texto elegidas a mano para una plantilla. */
+export interface TextRoles {
+  verse: number;
+  reference?: number;
+}
+
 export interface Config {
   apiBibleKey: string;
   versions: Record<string, string>;
@@ -34,6 +40,8 @@ export interface Config {
   minChars?: number;
   /** Límites por nombre de plantilla; si falta, se usan minChars/maxChars globales. */
   templateLimits?: Record<string, Limits>;
+  /** Caja de versículo/cita elegida a mano por nombre de plantilla; si falta, se detecta por área. */
+  templateRoles?: Record<string, TextRoles>;
   libraryPath?: string;
   /** Carpeta de biblioteca de ProPresenter cuyos .pro de una slide son plantillas. */
   templateLibrary?: string;
@@ -112,7 +120,7 @@ export interface PPHelperAPI {
 
   listLibraries(): Promise<{ name: string; path: string }[]>;
   templates(): Promise<LibraryItem[]>;
-  slideModel(file: string, slide?: { text: string; reference: string }): Promise<SlideModel>;
+  slideModel(file: string, slide?: { text: string; reference: string }, roles?: TextRoles): Promise<SlideModel>;
   reflow(template: string): Promise<Slide[]>;
   chooseLibrary(target: 'libraryPath' | 'templateLibrary'): Promise<Config | null>;
   editSlides(slides: Slide[], index: number, position?: number): Promise<Slide[]>;

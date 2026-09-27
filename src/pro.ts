@@ -5,7 +5,7 @@ import { readFileSync, renameSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as protobuf from 'protobufjs';
-import type { Slide, SlideElement, SlideModel } from './types';
+import type { Slide, SlideElement, SlideModel, TextRoles } from './types';
 
 export const PROTO_DIR = path.join(__dirname, '..', '..', 'proto');
 let protoDir = PROTO_DIR;
@@ -131,12 +131,20 @@ function slideAction(cue: protobuf.ReflectedMessage): protobuf.ReflectedMessage 
   return actions[0];
 }
 
-function textElement(cue: protobuf.ReflectedMessage, smallest = false): protobuf.ReflectedMessage {
+function textElement(cue: protobuf.ReflectedMessage, smallest = false, overrideIndex?: number): protobuf.ReflectedMessage {
   const elements: protobuf.ReflectedMessage[] = slideAction(cue).slide.presentation.baseSlide.elements;
+  if (overrideIndex !== undefined) {
+    const chosen = elements.filter(({ element }) => element)[overrideIndex]?.element?.text;
+    if (chosen) return chosen;
+  }
+  const candidates = elements.filter(({ element }) => element?.text);
+  // Un elemento con imagen de fondo también trae un texto vacío por defecto; se ignora
+  // salvo que sea el único candidato (caja de texto real con relleno de imagen).
+  const clean = candidates.filter(({ element }) => !element.fill?.media);
+  const pool = clean.length ? clean : candidates;
   let largest: protobuf.ReflectedMessage | undefined;
   let largestArea = smallest ? Infinity : -1;
-  for (const { element } of elements) {
-    if (!element?.text) continue;
+  for (const { element } of pool) {
     const size = element.bounds?.size;
     const area = (size?.width ?? 0) * (size?.height ?? 0);
     if (smallest ? area <= largestArea : area > largestArea) {
@@ -157,10 +165,10 @@ function remapIds(value: unknown, replacements: Map<string, string>): void {
   for (const child of Object.values(record)) remapIds(child, replacements);
 }
 
-function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: protobuf.Root, groupName?: string, versionKey = ''): protobuf.ReflectedMessage {
+function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: protobuf.Root, groupName?: string, versionKey = '', roles?: TextRoles): protobuf.ReflectedMessage {
   if (source.cues.length !== 1) throw new Error('Exporta una presentación con exactamente una slide');
   const original = source.cues[0];
-  const originalText = textElement(original);
+  const originalText = textElement(original, false, roles?.verse);
   const Presentation = root.lookupType('rv.data.Presentation');
   const Cue = root.lookupType('rv.data.Cue');
   const encoded = Cue.encode(original).finish();
@@ -177,9 +185,9 @@ function cloneSlides(source: protobuf.ReflectedMessage, slides: Slide[], root: p
     remapIds(cue, new Map(identities.map(value => [value.string, id().string])));
     action.label = action.label || {};
     action.label.text = item.label;
-    textElement(cue).rtfData = replaceRtf(originalText, item.text);
+    textElement(cue, false, roles?.verse).rtfData = replaceRtf(originalText, item.text);
     if (base.elements.filter((value: protobuf.ReflectedMessage) => value.element?.text).length > 1) {
-      const reference = textElement(cue, true);
+      const reference = textElement(cue, true, roles?.reference);
       const label = item.label.replace(/(\d)[a-z]+\b/g, '$1').replace(/-[a-z]+\b/g, '');
       reference.rtfData = replaceRtf(reference, `${label} ${versionKey}`.trimEnd());
     }
@@ -205,6 +213,7 @@ export async function buildPro(opts: {
   versionKey?: string;
   slides: Slide[];
   templatePath?: string;
+  roles?: TextRoles;
   outPath: string;
 }): Promise<string> {
   if (!Array.isArray(opts.slides) || !opts.slides.length) throw new Error('Se necesita al menos un texto');
@@ -216,7 +225,7 @@ export async function buildPro(opts: {
   const root = await loadProtos();
   const Presentation = root.lookupType('rv.data.Presentation');
   const output = opts.templatePath
-    ? cloneSlides(decode(Presentation, await readFile(opts.templatePath)), opts.slides, root, opts.group, opts.versionKey)
+    ? cloneSlides(decode(Presentation, await readFile(opts.templatePath)), opts.slides, root, opts.group, opts.versionKey, opts.roles)
     : buildPresentation(opts.name, opts.slides, Presentation, opts.group);
   output.name = opts.name;
   const error = Presentation.verify(output);
@@ -229,7 +238,7 @@ export async function buildPro(opts: {
 
 /** Conserva la presentación existente y añade un único grupo al final. */
 export async function appendToPro(opts: {
-  targetPath: string; slides: Slide[]; group: string; versionKey?: string; templatePath?: string; backupDir: string;
+  targetPath: string; slides: Slide[]; group: string; versionKey?: string; templatePath?: string; roles?: TextRoles; backupDir: string;
 }): Promise<{ backup: string; added: number }> {
   const original = await readFile(opts.targetPath);
   const before = await stat(opts.targetPath);
@@ -306,7 +315,7 @@ async function rtfText(bytes: Uint8Array): Promise<string> {
   }
 }
 
-export async function readSlideModel(filePath: string, slide?: { text: string; reference: string }): Promise<SlideModel> {
+export async function readSlideModel(filePath: string, slide?: { text: string; reference: string }, roles?: TextRoles): Promise<SlideModel> {
   const root = await loadProtos();
   const presentation = decode(root.lookupType('rv.data.Presentation'), await readFile(filePath));
   const base = presentation.cues.flatMap((cue: protobuf.ReflectedMessage) => cue.actions)
@@ -315,6 +324,7 @@ export async function readSlideModel(filePath: string, slide?: { text: string; r
   const { width, height } = base.size || {};
   if (!(width > 0 && height > 0)) throw new Error('Tamaño de diapositiva inválido');
   const elements: SlideElement[] = [];
+  const mediaFillText = new Set<SlideElement>();
   for (const { element: e } of base.elements) {
     if (!e) continue;
     const b = e.bounds;
@@ -359,18 +369,28 @@ export async function readSlideModel(filePath: string, slide?: { text: string; r
         verticalAlign: (['top', 'middle', 'bottom'] as const)[text.verticalAlignment || 0] || 'top',
       };
       if (a.textGradientFill || a.strokeWidth || text.shadow?.enable) item.unsupported = true;
+      if (fill?.enable && fill.media) mediaFillText.add(item);
     }
     elements.push(item);
   }
-  const texts = elements.filter(element => element.text);
-  if (texts.length) {
-    const verse = texts.reduce((a, b) => b.width * b.height > a.width * a.height ? b : a);
-    verse.role = 'verse';
-    if (slide) verse.text!.content = slide.text;
-    if (texts.length > 1) {
-      const reference = texts.reduce((a, b) => b.width * b.height <= a.width * a.height ? b : a);
-      reference.role = 'reference';
-      if (slide) reference.text!.content = slide.reference;
+  if (roles) {
+    const verse = elements[roles.verse];
+    if (verse?.text) { verse.role = 'verse'; if (slide) verse.text.content = slide.text; }
+    const reference = roles.reference !== undefined ? elements[roles.reference] : undefined;
+    if (reference?.text) { reference.role = 'reference'; if (slide) reference.text.content = slide.reference; }
+  } else {
+    const allTexts = elements.filter(element => element.text);
+    const cleanTexts = allTexts.filter(element => !mediaFillText.has(element));
+    const texts = cleanTexts.length ? cleanTexts : allTexts;
+    if (texts.length) {
+      const verse = texts.reduce((a, b) => b.width * b.height > a.width * a.height ? b : a);
+      verse.role = 'verse';
+      if (slide) verse.text!.content = slide.text;
+      if (texts.length > 1) {
+        const reference = texts.reduce((a, b) => b.width * b.height <= a.width * a.height ? b : a);
+        reference.role = 'reference';
+        if (slide) reference.text!.content = slide.reference;
+      }
     }
   }
   return {
