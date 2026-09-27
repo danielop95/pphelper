@@ -9,14 +9,16 @@ Realizado (en `main`, publicado en https://github.com/danielop95/pphelper, públ
 - Selector manual de caja Versículo/Cita por plantilla (`Config.templateRoles`, índices en `SlideModel.elements`); aplica a vista previa, generar y añadir.
 - Aviso de versión nueva: al abrir consulta `releases/latest` de GitHub y ofrece abrir la página. Sin firma no hay auto-instalación.
 - Versión 0.2.0, release `v0.2.0` con el `.dmg` arm64.
+- 0.2.1: aviso en Ajustes cuando plantillas y envíos comparten biblioteca (causa del "ruido": cada `.pro` de 1 slide enviado aparecía como plantilla). Solución recomendada al usuario: biblioteca de ProPresenter solo para plantillas. Release `v0.2.1` publicada con `.dmg`.
+- Hecho no obvio: el DNS de Tailscale (`100.100.100.100`) falla a ratos con `api.github.com`; una subida de release falló por eso y dejó un borrador vacío (se borró y se repitió).
 
 Verificado: build, test 34/34, smoke OK. Plantilla real `Versiculos.pro` (Preestablecido): usuario confirmó en ProPresenter `Prueba fix.pro` y `Prueba fix 2.pro` bien.
 
 Decisiones: Biblias solo por importación manual (sin preinstalar por licencias). Actualización sin firma (camino 1); firmar requiere Apple Developer.
 
 Pendiente:
-- Borrar `Prueba fix.pro`, `Prueba fix 2.pro`, `Juan 3.16 (NTV).pro` y `SPIKE2 copia.pro` de `Preestablecido` (con confirmación del usuario).
-- Probar el selector manual en la UI real y el aviso de actualización con una release 0.2.1.
+- Usuario: crear biblioteca solo de plantillas, mover `Versiculos.pro` y elegirla en Ajustes.
+- Confirmar en la 0.2.0 instalada que aparece el aviso de la 0.2.1; probar el selector manual de cajas en la UI real.
 - Publicar una versión: subir `version` en `package.json`, `npm run dist`, `gh release create vX.Y.Z out/pphelper-X.Y.Z-arm64.dmg`.
 
 ## 2026-09-20
