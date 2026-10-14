@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, TestContext } from 'node:test';
-import { parseRef } from '../src/bible';
-import { importXml, listBibles, localVerses, openDb, removeBible, renameBible } from '../src/bibledb';
+import { parseRef } from '../src/books';
+import { bibleOutline, importXml, listBibles, localVerses, openDb, removeBible, renameBible } from '../src/bibledb';
 
 function xml({ offset = 39, books = 27, count = 260, empty = 0, text = '  Jesús   &amp; &lt;vida&gt; &quot;sí&quot; &apos;él&apos; &#241; &#x1F64F; ' } = {}): string {
   return '\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<bible translation="Prueba (edición)" status="Autor &amp; otros">\n<testament name="New">\n' +
@@ -36,6 +36,10 @@ test('importa BOM, entidades y acentos; persiste metadatos y consulta rangos com
   for (const ref of ['Juan 1:261-265', 'Juan 2', 'Salmos 23']) assert.deepEqual(localVerses(db, bible.id, parseRef(ref)), []);
   assert.deepEqual(localVerses(db, 'missing', parseRef('Juan 1')), []);
   assert.throws(() => localVerses(db, bible.id, { ...parseRef('Juan 1'), from: 0 }), /rango|versículos/i);
+  const outline = bibleOutline(db, bible.id);
+  assert.deepEqual(outline.JHN, [260]);
+  assert.equal(Object.keys(outline).length, 27);
+  assert.deepEqual(bibleOutline(db, 'missing'), {});
 });
 
 test('NT 1–27 aplica el offset y reimportar reemplaza sin dejar versículos antiguos', async t => {

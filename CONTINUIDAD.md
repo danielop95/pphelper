@@ -2,6 +2,21 @@
 
 Plan vigente: `~/.claude/plans/contexto-en-mi-iglesia-majestic-corbato.md` (fase 1.6, ejecutada). Fases 2 y 3 sin plan.
 
+## 2026-10-14
+
+Realizado (sin commit, en `main`): autocompletado en «Referencia bíblica». Plan: `~/.claude/plans/vamos-a-lanzar-una-cozy-shore.md`.
+- `src/books.ts` (puro) con `BOOKS`/`parseRef`/`formatRef` movidos de `bible.ts` y `refAssist`: sugiere libros por nombre/alias sin tildes; con Biblia local avisa en vivo de capítulo/versículo inexistente y deshabilita Buscar.
+- IPC `bibles:outline` → `bibleOutline` (máx. `verse_end` por capítulo). Con API.Bible solo sugiere libros.
+- Campo hecho con `ComboBox` de react-aria + `InputBase` de Untitled (el `ComboBox` de Untitled usa texto transparente superpuesto que chocaba con el CSS oscuro).
+
+Verificado: build, test 36/36, smoke OK 3 veces (sugerencia «gen», ↓+Enter completa «Génesis », «Génesis 99» deshabilita Buscar). Capturas `scratch/out/f17-*.png`.
+
+Hecho no obvio: en el smoke el ComboBox solo abre con teclas reales (`sendInputEvent` + `win.focus()`), no con el setter de `value`.
+
+- Ajustes → Biblias sin conexión: botón «Descargar Biblias XML» abre `https://github.com/Beblia/Holy-Bible-XML-Format` (IPC `app:open-bibles`, URL fija en main).
+
+Pendiente: prueba manual en la app real con RVR1960; commit y versión.
+
 ## 2026-09-26
 
 Realizado (en `main`, publicado en https://github.com/danielop95/pphelper, público):

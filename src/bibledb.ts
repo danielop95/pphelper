@@ -2,8 +2,8 @@ import { createReadStream } from 'node:fs';
 import { basename } from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
-import { BOOKS } from './bible';
-import { ParsedRef, Verse } from './types';
+import { BOOKS } from './books';
+import { BibleOutline, ParsedRef, Verse } from './types';
 
 export interface LocalBible {
   id: string;
@@ -201,4 +201,14 @@ export function localVerses(db: DatabaseSync, bibleId: string, ref: ParsedRef): 
       book: String(row.book), chapter: Number(row.chapter), verse: Number(row.verse), text: String(row.text),
       ...(Number(row.verse_end) > Number(row.verse) ? { verseEnd: Number(row.verse_end) } : {}),
     }));
+}
+
+export function bibleOutline(db: DatabaseSync, bibleId: string): BibleOutline {
+  const outline: BibleOutline = {};
+  for (const row of db.prepare('SELECT book, chapter, MAX(verse_end) AS last FROM verses WHERE bible = ? GROUP BY book, chapter').all(bibleId)) {
+    const chapters = outline[String(row.book)] ??= [];
+    for (let i = chapters.length; i < Number(row.chapter); i++) chapters.push(0);
+    chapters[Number(row.chapter) - 1] = Number(row.last);
+  }
+  return outline;
 }

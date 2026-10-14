@@ -101,6 +101,8 @@ export const IPC = {
   reflow: 'slides:reflow',
 } as const;
 
+// Libro → último versículo de cada capítulo (índice = capítulo - 1; 0 = capítulo sin texto).
+export type BibleOutline = Record<string, number[]>;
 export interface PreparedFile { name: string; revision: number }
 export interface BibleOption { id: string; key: string; name: string }
 export interface PPHelperAPI {
@@ -112,6 +114,7 @@ export interface PPHelperAPI {
   setConfig(partial: Partial<Config>): Promise<Config>;
   listBibles(): Promise<BibleOption[]>;
   localBibles(): Promise<LocalBible[]>;
+  outline(versionKey: string): Promise<BibleOutline | null>;
   importBibles(): Promise<{ imported: LocalBible[]; errors: { file: string; message: string }[] }>;
   removeBible(id: string): Promise<Config>;
   renameBible(id: string, abbreviation: string): Promise<Config>;
@@ -128,4 +131,5 @@ export interface PPHelperAPI {
   onTemplatesChanged(callback: () => void): () => void;
   checkUpdate(): Promise<{ version: string } | null>;
   openUpdate(): Promise<void>;
+  openBibles(): Promise<void>;
 }

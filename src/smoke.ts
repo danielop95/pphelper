@@ -195,6 +195,21 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
     await wait(`document.documentElement.dataset.ready === 'true'`);
     assert(!await evaluate(`!!document.querySelector('[role="dialog"]')`), 'No debe forzar Ajustes con Biblia local sin API key');
     assert.match(await evaluate(`window.pphelper.lookup('Génesis 3', 'LOCAL', '').then(() => '', e => e.message)`), /No hay texto.*LOCAL.*archivo importado/);
+    win.focus();
+    await evaluate(`${query('reference')}.focus()`);
+    for (const key of 'gen') win.webContents.sendInputEvent({ type: 'char', keyCode: key });
+    await wait(`[...document.querySelectorAll('[role="option"]')].some(o => o.textContent.includes('Génesis'))`);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    writeFileSync(path.join(out, 'f17-suggest.png'), (await win.webContents.capturePage()).toPNG());
+    for (const keyCode of ['Down', 'Return']) {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+    }
+    await wait(`${query('reference')}.value === 'Génesis ' && !document.querySelector('[role="option"]')`);
+    await type('reference', 'Génesis 99');
+    await wait(`${query('search')}.disabled && document.body.innerText.includes('Génesis tiene')`);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    writeFileSync(path.join(out, 'f17-invalid.png'), (await win.webContents.capturePage()).toPNG());
     await type('reference', 'Génesis 2:2');
     await click('search');
     await wait(`${count(1)} && ${ready}`);
@@ -210,6 +225,7 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
     assert.equal((await readSlideModel(localOutput)).elements.find(e => e.role === 'reference')?.text?.content, 'Génesis 2:1-3 LOCAL');
     await click('settings');
     await wait(`!!${query('local-bible')}`);
+    assert(await evaluate(`!!${query('download-bibles')}`), 'Falta el botón de descarga de Biblias');
     assert.match(await evaluate(`${query('local-bible')}.textContent`), /sin conexión.*7018 versículos.*agrupados.*libre para pruebas/);
     await evaluate('document.fonts.ready');
     await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');

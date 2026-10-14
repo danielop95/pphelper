@@ -4,7 +4,8 @@ App de escritorio (Electron + TypeScript) que genera presentaciones `.pro` de ve
 
 ## Estructura
 
-- `src/bible.ts`: parseo de referencias (`parseRef`, `formatRef`, `BOOKS`) y `fetchVerses` (API.Bible con caché por capítulo).
+- `src/books.ts`: puro (también lo usa el renderer): `BOOKS`, `parseRef`, `formatRef` y `refAssist` (autocompletado y avisos de capítulo/versículo).
+- `src/bible.ts`: `fetchVerses` (API.Bible con caché por capítulo).
 - `src/bibledb.ts`: Biblias locales en SQLite (`node:sqlite`), importación XML Beblia, avisos y versículos agrupados con `verseEnd`.
 - `src/split.ts`: cortes de slides, funciones puras (`toSlides`, `mergeSlides`, `splitSlide`).
 - `src/pro.ts`: lectura/escritura de `.pro` (protobuf). Genera desde cero, clona la única slide de una plantilla o añade cues a una presentación con respaldo y detección de cambios.

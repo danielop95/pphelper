@@ -3,8 +3,8 @@ import type { IPC, Config, Slide, PPHelperAPI } from './types';
 
 // Sandbox preloads cannot require local modules. Main passes constants, never secrets.
 const channels = JSON.parse(process.argv.find(value => value.startsWith('--pphelper-ipc='))!.slice('--pphelper-ipc='.length)) as typeof IPC & {
-  local: string; importBibles: string; removeBible: string; renameBible: string; targets: string; append: string;
-  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string; update: string; openUpdate: string;
+  local: string; outline: string; importBibles: string; removeBible: string; renameBible: string; targets: string; append: string;
+  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string; update: string; openUpdate: string; openBibles: string;
 };
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, value: T) => callback(value);
@@ -19,6 +19,7 @@ const api: PPHelperAPI = {
   getConfig: () => ipcRenderer.invoke(channels.config),
   setConfig: (partial: Partial<Config>) => ipcRenderer.invoke(channels.configSet, partial),
   localBibles: () => ipcRenderer.invoke(channels.local),
+  outline: versionKey => ipcRenderer.invoke(channels.outline, versionKey),
   importBibles: () => ipcRenderer.invoke(channels.importBibles),
   removeBible: id => ipcRenderer.invoke(channels.removeBible, id),
   renameBible: (id, abbreviation) => ipcRenderer.invoke(channels.renameBible, id, abbreviation),
@@ -35,6 +36,7 @@ const api: PPHelperAPI = {
   onTemplatesChanged: callback => subscribe(channels.templatesChanged, callback),
   checkUpdate: () => ipcRenderer.invoke(channels.update),
   openUpdate: () => ipcRenderer.invoke(channels.openUpdate),
+  openBibles: () => ipcRenderer.invoke(channels.openBibles),
 };
 contextBridge.exposeInMainWorld('pphelper', api);
 

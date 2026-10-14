@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { BOOKS, fetchVerses, formatRef, parseRef } from '../src/bible';
+import { fetchVerses } from '../src/bible';
+import { BOOKS, formatRef, parseRef } from '../src/books';
 import { mergeSlides, splitSlide, toSlides } from '../src/split';
 import { Verse } from '../src/types';
 

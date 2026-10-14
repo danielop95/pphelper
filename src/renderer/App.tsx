@@ -1,14 +1,19 @@
 /// <reference types="vite/client" />
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Heading } from 'react-aria-components';
+import { ComboBox, Heading, ListBox } from 'react-aria-components';
 import { Settings01, Download01, File06 } from '@untitledui/icons';
-import type { BibleOption, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel, TextRoles } from '../types';
+import type { BibleOption, BibleOutline, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel, TextRoles } from '../types';
 import type { LocalBible } from '../bibledb';
+import { refAssist } from '../books';
 import { AppendModal } from './AppendModal';
 import { SlidePreview } from './SlidePreview';
 import { Button } from './components/base/buttons/button';
-import { Input } from './components/base/input/input';
+import { Input, InputBase } from './components/base/input/input';
+import { Label } from './components/base/input/label';
+import { HintText } from './components/base/input/hint-text';
+import { Popover } from './components/base/select/popover';
+import { SelectItem } from './components/base/select/select-item';
 import { Select } from './components/base/select/select';
 import { Checkbox } from './components/base/checkbox/checkbox';
 import { Badge } from './components/base/badges/badges';
@@ -83,6 +88,7 @@ function App() {
   const [config, setConfig] = useState<Config>();
   const [reference, setReference] = useState('');
   const [version, setVersion] = useState('');
+  const [outline, setOutline] = useState<BibleOutline | null>(null);
   const [template, setTemplate] = useState('');
   const [templates, setTemplates] = useState<LibraryItem[]>([]);
   const [templateRevision, setTemplateRevision] = useState(0);
@@ -121,6 +127,13 @@ function App() {
     }).catch(fail);
     return () => { active = false; stop(); stopError(); };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setOutline(null);
+    if (version) api.outline(version).then(next => { if (active) setOutline(next); }).catch(() => {});
+    return () => { active = false; };
+  }, [version, config?.versions]);
 
   useEffect(() => {
     if (busy || !config || !templateRevision || !template || templates.some(item => item.name === template)) return;
@@ -201,19 +214,27 @@ function App() {
   const limits = config?.templateLimits?.[template] ?? { minChars: config?.minChars ?? 80, maxChars: config?.maxChars ?? 180 };
   const roles = config?.templateRoles?.[template];
   const choices = [{ name: '', path: '', library: '' }, ...templates];
+  const assist = refAssist(reference, outline);
   return <>
     <main className="app-content">
       <header className="app-header"><h1><img src={logo} width={28} height={28} alt="" />pphelper</h1><Button color="tertiary" size="sm" iconLeading={Settings01} data-testid="settings" onPress={() => setSettings(true)}>Ajustes</Button></header>
       {update && <div className="update-banner" data-testid="update-banner"><span>Hay una versión nueva: {update}</span>
         <Button size="sm" color="secondary" onPress={() => { void api.openUpdate(); }}>Descargar</Button></div>}
       <form data-testid="lookup-form" onSubmit={event => { event.preventDefault(); if (!busy) void lookup(); }} className="lookup-form">
-        <Input label="Referencia bíblica" placeholder="Juan 3:16-18" value={reference} onChange={setReference} data-testid="reference" isDisabled={busy} />
+        <ComboBox className="flex flex-col gap-1.5" data-testid="reference" aria-label="Referencia bíblica" allowsCustomValue menuTrigger="input" isDisabled={busy}
+          inputValue={reference} onInputChange={setReference} selectedKey={null} onSelectionChange={key => { if (key !== null) setReference(String(key)); }}
+          defaultFilter={() => true} items={assist.suggestions} isInvalid={assist.invalid}>
+          <Label>Referencia bíblica</Label>
+          <InputBase placeholder="Juan 3:16-18" isInvalid={assist.invalid} isDisabled={busy} />
+          {assist.hint && <HintText isInvalid={assist.invalid}>{assist.hint}</HintText>}
+          <Popover size="md"><ListBox className="outline-hidden">{(item: { id: string; label: string }) => <SelectItem id={item.id} label={item.label} />}</ListBox></Popover>
+        </ComboBox>
         <Select label="Versión" aria-label="Versión" placeholder="Elige Biblia" size="sm" data-testid="version" isDisabled={busy} selectedKey={version || null}
           items={Object.keys(config?.versions ?? {}).map(key => ({ id: key, label: key }))}
           onSelectionChange={key => { const next = String(key); invalidate(); setVersion(next); if (reference.trim()) void lookup(next); }}>
           {item => <Select.Item id={item.id}>{item.label}</Select.Item>}
         </Select>
-        <Button type="submit" data-testid="search" isDisabled={busy || !version || !reference.trim()} isLoading={busy}>Buscar</Button>
+        <Button type="submit" data-testid="search" isDisabled={busy || !version || !reference.trim() || assist.invalid} isLoading={busy}>Buscar</Button>
       </form>
       <div role="alert" data-testid="error" className="error-message" hidden={!error}>{error}</div>
       <section aria-labelledby="templates-heading" className="templates-section">
@@ -285,10 +306,11 @@ function Settings({ open, close, config, changed }: { open: boolean; close: () =
       <div role="alert" className="error-message" hidden={!error}>{error}</div>
       <section><h3>Biblias sin conexión</h3>
         <p>Importa archivos XML de Biblia que tengas derecho a usar. Los textos se guardan solo en este equipo.</p>
-        <Button color="secondary" size="sm" data-testid="import-bibles" isDisabled={busy} isLoading={busy} onPress={() => { void run(async () => {
+        <div className="settings-actions"><Button color="secondary" size="sm" data-testid="import-bibles" isDisabled={busy} isLoading={busy} onPress={() => { void run(async () => {
           const result = await api.importBibles(); changed(await api.getConfig()); setLocals(await api.localBibles());
           if (result.errors.length) setError(result.errors.map(item => `${item.file}: ${item.message}`).join('\n'));
         }); }}>Importar XML…</Button>
+        <Button color="tertiary" size="sm" data-testid="download-bibles" onPress={() => { void api.openBibles(); }}>Descargar Biblias XML</Button></div>
         <ul className="local-bibles">{locals.map(bible => <li key={bible.id} data-testid="local-bible">
           <div className="local-bible-heading"><strong>{bible.name}</strong><Badge size="sm" color="gray">sin conexión</Badge></div>
           <div className="local-bible-actions"><label>Abreviatura<input key={bible.abbreviation} aria-label={`Abreviatura de ${bible.name}`} defaultValue={bible.abbreviation} maxLength={20} disabled={busy}

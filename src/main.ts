@@ -1,17 +1,18 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { openDb, importXml, listBibles, removeBible, renameBible, localVerses, type LocalBible } from './bibledb';
+import { openDb, importXml, listBibles, removeBible, renameBible, localVerses, bibleOutline, type LocalBible } from './bibledb';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { fetchVerses, formatRef, parseRef } from './bible';
+import { fetchVerses } from './bible';
+import { formatRef, parseRef } from './books';
 import { mergeSlides, splitSlide, toSlides } from './split';
 import { appendToPro, buildPro, readSlideModel, setProtoDir } from './pro';
 import { listLibraries, listTemplates, watchDir } from './library';
 import { runSmoke } from './smoke';
 import { IPC, type Config, type Slide, type TextRoles, type Verse } from './types';
 
-const EXTRA_IPC = { local: 'bibles:local', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update' } as const;
+const EXTRA_IPC = { local: 'bibles:local', outline: 'bibles:outline', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update', openBibles: 'app:open-bibles' } as const;
 const RELEASES = 'https://github.com/danielop95/pphelper/releases';
 let updateUrl = '';
 function newer(latest: string, current: string): boolean {
@@ -169,6 +170,11 @@ app.whenReady().then(async () => {
     catch (error) { throw new Error(spanishError(error)); }
   });
   ipcMain.handle(EXTRA_IPC.local, event => { checkSender(event); if (importing) throw new Error('Espera a que termine la importación.'); return listBibles(db); });
+  ipcMain.handle(EXTRA_IPC.outline, (event, versionKey: string) => {
+    checkSender(event);
+    const bibleId = typeof versionKey === 'string' && Object.hasOwn(config.versions, versionKey) ? config.versions[versionKey] : '';
+    return bibleId.startsWith('local:') && !importing ? bibleOutline(db, bibleId.slice(6)) : null;
+  });
   ipcMain.handle(EXTRA_IPC.importBibles, async event => {
     checkSender(event);
     if (importing) throw new Error('Ya hay una importación en curso.');
@@ -344,6 +350,10 @@ app.whenReady().then(async () => {
   ipcMain.handle(EXTRA_IPC.openUpdate, event => {
     checkSender(event);
     if (updateUrl) void shell.openExternal(updateUrl);
+  });
+  ipcMain.handle(EXTRA_IPC.openBibles, event => {
+    checkSender(event);
+    void shell.openExternal('https://github.com/Beblia/Holy-Bible-XML-Format');
   });
   if (smoke) await runSmoke(window, dataPath);
   else await window.loadFile(path.join(app.getAppPath(), 'dist/renderer/index.html'));

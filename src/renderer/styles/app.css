@@ -7,7 +7,7 @@ input, textarea { caret-color: var(--color-brand-500); }
 .app-header, .section-heading, .slide-heading, .delivery-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .app-header { margin-bottom: 22px; }
 .app-header h1 { display: flex; align-items: center; gap: 8px; font-size: 21px; font-weight: 650; letter-spacing: -.025em; }
-.lookup-form { display: grid; grid-template-columns: minmax(0, 1fr) 115px; gap: 10px; align-items: end; }
+.lookup-form { display: grid; grid-template-columns: minmax(0, 1fr) 115px; gap: 10px; align-items: start; }
 .lookup-form > button { grid-column: 1 / -1; }
 .section-heading { margin: 24px 0 12px; }
 h2, .section-heading > [slot=title] { font-size: 16px; font-weight: 600; }
