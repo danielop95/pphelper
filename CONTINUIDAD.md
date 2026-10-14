@@ -4,7 +4,7 @@ Plan vigente: `~/.claude/plans/contexto-en-mi-iglesia-majestic-corbato.md` (fase
 
 ## 2026-10-14
 
-Realizado (sin commit, en `main`): autocompletado en «Referencia bíblica». Plan: `~/.claude/plans/vamos-a-lanzar-una-cozy-shore.md`.
+Realizado: autocompletado en «Referencia bíblica». Plan: `~/.claude/plans/vamos-a-lanzar-una-cozy-shore.md`.
 - `src/books.ts` (puro) con `BOOKS`/`parseRef`/`formatRef` movidos de `bible.ts` y `refAssist`: sugiere libros por nombre/alias sin tildes; con Biblia local avisa en vivo de capítulo/versículo inexistente y deshabilita Buscar.
 - IPC `bibles:outline` → `bibleOutline` (máx. `verse_end` por capítulo). Con API.Bible solo sugiere libros.
 - Campo hecho con `ComboBox` de react-aria + `InputBase` de Untitled (el `ComboBox` de Untitled usa texto transparente superpuesto que chocaba con el CSS oscuro).
@@ -15,7 +15,9 @@ Hecho no obvio: en el smoke el ComboBox solo abre con teclas reales (`sendInputE
 
 - Ajustes → Biblias sin conexión: botón «Descargar Biblias XML» abre `https://github.com/Beblia/Holy-Bible-XML-Format` (IPC `app:open-bibles`, URL fija en main).
 
-Pendiente: prueba manual en la app real con RVR1960; commit y versión.
+Publicado: commits `a3d04a3` (feature) y `8355b95` (versión 0.2.3) en `main`; release `v0.2.3` con `pphelper-0.2.3-arm64.dmg` (no borrador).
+
+Pendiente: prueba manual en la app real con RVR1960 (autocompletado, aviso de límites, botón de descarga); confirmar que la 0.2.2 instalada avisa de la 0.2.3.
 
 ## 2026-09-26
 
