@@ -6,8 +6,16 @@ para ProPresenter. Permite ajustar los cortes de los versículos y usar tu plant
 ## Instalación
 
 1. Abre el `.dmg` y arrastra pphelper a Aplicaciones.
-2. La app no está firmada: la primera vez, haz clic derecho sobre pphelper
-   en Aplicaciones → **Abrir** y confirma la apertura.
+2. La app no está firmada y macOS la bloquea la primera vez. Quita la cuarentena
+   desde Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/pphelper.app
+   ```
+
+   Después se abre con doble clic. Sin Terminal: intenta abrirla una vez y ve a
+   **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente** (en macOS
+   anteriores a Sequoia basta clic derecho → **Abrir**).
 
 ## Primer uso
 
