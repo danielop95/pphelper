@@ -31,8 +31,10 @@ Además (mismo día, sin commit): ajuste general de UI (plan en el mismo archivo
 - Verificado: test 42/42, smoke 3/3 (+ contraste, selector abre con clic real, filtra «georgia», fuente cargada), `impeccable detect` limpio.
 - Hecho no obvio (smoke): el primer clic real tras abrir un modal solo activa la ventana; y hay que esperar a que el popover termine de recolocarse antes de clicar una opción.
 
+Publicado: commits `f18a8db` (feature) y `4906c10` (versión 0.2.4) en `main`; release `v0.2.4` con `pphelper-0.2.4-arm64.dmg` (no borrador, 139 836 202 bytes). El primer `npm run dist` falló con `plistlib.InvalidFileException`; el segundo funcionó (había una pphelper abierta desde `out/mac-arm64`).
+
 Pendiente:
-- Prueba real en ProPresenter 22: crear plantilla desde `IMG_4410.PNG`, generar, arrastrar a playlist y ver banner/letra/posición (sin hacer). Confirma también si PP22 encuentra imágenes en `Application Support/pphelper/plantillas/media`.
+- Instalar 0.2.4 en la Mac de la iglesia; confirmar que la 0.2.3 avisa de la versión nueva.
 - Editar después una plantilla creada desde imagen (hoy se recrea con el mismo nombre).
 - Probable rotura con PP22 de «Enviar a biblioteca» y «Añadir a presentación» (escriben `.pro` en `UserWorkspaces/.../Libraries`, que PP22 ya no lee). Sin verificar.
 - Commit y versión nueva cuando el usuario lo pida.
