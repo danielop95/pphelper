@@ -5,52 +5,55 @@ para ProPresenter. Permite ajustar los cortes de los versículos y usar tu plant
 
 ## Instalación
 
-1. Abre el `.dmg` y arrastra pphelper a Aplicaciones.
-2. La app no está firmada y macOS la bloquea la primera vez. Quita la cuarentena
-   desde Terminal:
+1. Abre el `.dmg` y arrastra pphelper a **Aplicaciones**.
+2. La app no está firmada y macOS la bloquea la primera vez. Sin Terminal: intenta
+   abrirla una vez y ve a **Ajustes del Sistema → Privacidad y seguridad → Abrir
+   igualmente** (en macOS anteriores a Sequoia basta clic derecho → **Abrir**).
+   Alternativa con Terminal:
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/pphelper.app
    ```
 
-   Después se abre con doble clic. Sin Terminal: intenta abrirla una vez y ve a
-   **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente** (en macOS
-   anteriores a Sequoia basta clic derecho → **Abrir**).
+3. Solo se hace una vez. Desde la 0.2.5, cuando hay una versión nueva la app muestra
+   **Actualizar ahora**: la descarga, comprueba su SHA-256 con el publicado en GitHub,
+   la instala y se reabre, sin pasos extra de seguridad.
 
 ## Primer uso
 
-1. Abre **Ajustes → Biblias sin conexión → Importar XML…** para importar una Biblia local.
+1. Abre **Ajustes → Biblias en esta Mac → Agregar Biblia (XML)…** para importar una Biblia local.
    No necesitas cuenta, clave de API.Bible ni conexión para consultarla.
 2. Si prefieres API.Bible, obtén una clave en <https://scripture.api.bible>,
-   pégala en Ajustes y pulsa **Cargar Biblias**.
+   pégala en Ajustes y pulsa **Ver Biblias disponibles**.
 3. Marca las versiones de API.Bible que quieras usar; las locales se añaden automáticamente.
-4. En **Biblioteca de plantillas**, elige una biblioteca de ProPresenter o **Elegir carpeta…**.
-   Guarda allí presentaciones `.pro` de una sola diapositiva: aparecerán como tarjetas
-   y se actualizarán al crear, modificar o borrar archivos en esa carpeta.
-   Si tienen varios textos, el mayor recibe el versículo y el menor la referencia y versión.
-   Las plantillas importadas con versiones anteriores siguen en su carpeta original:
-   Ajustes muestra un aviso para elegir esa carpeta; no se borran ni se copian archivos.
-5. Revisa la carpeta de biblioteca si vas a usar **Enviar a biblioteca**.
+4. En **Plantilla**, pulsa **Crear desde imagen…** y elige el PNG de tu banner (1920×1080).
+   La app coloca el versículo y la cita en la franja opaca; mueve las cajas arrastrando
+   y elige tipografía, tamaño, color y alineación. También puedes **Importar de
+   ProPresenter…** una presentación `.pro` o `.proBundle` de una sola diapositiva.
+   Las plantillas se guardan dentro de la app; si cambias el diseño, vuelve a crearla
+   o importarla con el mismo nombre.
 
 ## Uso diario
 
-1. Elige versión y plantilla, escribe una referencia como `Salmos 23:1-4` y pulsa **Enter**.
-2. Revisa las vistas previas y edita el texto. Para **Partir aquí**, coloca el cursor
-   dentro del texto; **Unir con siguiente** combina dos diapositivas.
-3. Ajusta **Mín. / Máx.** en la tarjeta seleccionada. Los límites se guardan por nombre
-   de plantilla al salir del campo o pulsar Enter y reorganizan el pasaje original.
-   **Sin plantilla** tiene límites propios y genera texto blanco sobre fondo negro.
-4. **Reorganizar** recalcula los cortes desde los versículos originales y reemplaza
-   las ediciones manuales. Cambiar de plantilla lo hace automáticamente solo cuando
-   no has editado; si hay ediciones, se conservan y el botón queda resaltado.
-5. Arrastra la presentación a una playlist de ProPresenter o pulsa **Enviar a biblioteca**.
-   Si ya existe un archivo con ese nombre en la biblioteca, se sobrescribe.
+1. Elige Biblia y plantilla, escribe un pasaje como `Salmos 23:1-4` y pulsa **Buscar pasaje**.
+2. Revisa las vistas previas y edita el texto. Para **Dividir en el cursor**, haz clic
+   dentro del texto donde quieras cortar; **Unir con la siguiente** combina dos diapositivas.
+3. Ajusta **Letras por diapositiva** (mínimo y máximo) en la tarjeta seleccionada: menos
+   letras, más diapositivas. Se guardan por plantilla. **Fondo negro simple** genera
+   texto blanco sobre negro.
+4. **Repartir de nuevo** recalcula los cortes desde los versículos originales y reemplaza
+   los cambios hechos a mano.
+5. Arrastra la tarjeta de abajo a una playlist de ProPresenter.
+
+Con ProPresenter 21 o anterior puedes activar en Ajustes **Uso ProPresenter 21 o anterior**
+para ver **Enviar a biblioteca** y **Agregar a una presentación…** (ProPresenter 22 ya no
+lee esos archivos).
 
 Los capítulos consultados en API.Bible quedan guardados para poder reutilizarlos sin conexión.
 
-La última plantilla queda seleccionada al volver a abrir la app. El aviso **No cabe**
-indica texto que desborda su caja; ajusta los cortes o los límites. Las vistas previas
-son aproximadas: comprueba efectos y diseño final en ProPresenter.
+La última plantilla queda seleccionada al volver a abrir la app. El aviso **Texto muy largo**
+indica texto que desborda su caja; ajusta los cortes o las letras por diapositiva. Las
+vistas previas son aproximadas: comprueba el diseño final en ProPresenter.
 
 ## Biblias sin conexión
 

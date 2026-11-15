@@ -116,7 +116,8 @@ export function TemplateEditor({ initial, close, done }: { initial: TemplateDraf
     { x: 0, y: 0, width: 1920, height: 1080, opacity: 1, image: initial.image },
   ] };
   const pct = (box: TemplateBox) => ({ left: `${box.x / 19.2}%`, top: `${box.y / 10.8}%`, width: `${box.width / 19.2}%`, height: `${box.height / 10.8}%` });
-  return <ModalOverlay isOpen isDismissable={!busy} onOpenChange={open => { if (!open && !busy) close(); }}><Modal><Dialog>
+  // Sin cierre por clic fuera: un clic accidental perdería las cajas y tipografías ajustadas.
+  return <ModalOverlay isOpen isDismissable={false} onOpenChange={open => { if (!open && !busy) close(); }}><Modal><Dialog>
     <div className="settings-content template-editor" data-testid="template-editor">
       <div className="section-heading"><Heading slot="title">Crear plantilla desde imagen</Heading></div>
       <label className="template-name-field">Nombre de la plantilla<input data-testid="template-name" value={name} maxLength={120} disabled={busy} onChange={event => setName(event.target.value)} /></label>

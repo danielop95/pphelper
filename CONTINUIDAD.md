@@ -2,6 +2,17 @@
 
 Plan vigente: `~/.claude/plans/contexto-en-mi-iglesia-majestic-corbato.md` (fase 1.6, ejecutada). Fases 2 y 3 sin plan.
 
+## 2026-11-15 (tarde)
+
+Realizado: ventana inicial 560 px; actualización desde la app (`src/update.ts`): `pickAsset` (asset `pphelper-<v>-<arch>.dmg` del repo con `digest` sha256 de la API de GitHub), descarga en streaming con SHA-256, `hdiutil attach` + `ditto`, validación de `Info.plist` y `SWAP_SCRIPT` (`/bin/sh` separado: espera el PID, `mv` con restauración, `open`). Banner: «Actualizar ahora» + «Ver novedades». Editor de plantilla ya no se cierra con clic fuera (se perdía el trabajo). README al día.
+
+Verificado: test 45/45, smoke OK; prueba real de punta a punta: copia empaquetada como 0.2.3 en el scratchpad → el usuario pulsó «Actualizar ahora» → se reabrió como 0.2.4 desde la misma ruta, sin atributo de cuarentena, idéntica a la app del `.dmg`, sin temporales.
+
+Hechos no obvios:
+- El primer clic en un botón no puede quitar el bloqueo de Gatekeeper de la primera apertura; la descarga hecha por la propia app no lleva cuarentena.
+- La herramienta Bash mata los procesos lanzados en segundo plano al terminar; para dejar una app abierta usar `open -n`. La app empaquetada no abre `--remote-debugging-port`.
+- `codesign --verify` da «code has no resources…» también en el `.dmg` original (firma ad hoc de electron-builder); no impide abrir.
+
 ## 2026-11-15
 
 Realizado (sin commit): plantillas importadas dentro de la app. Plan: `~/.claude/plans/actualmente-la-app-esta-curried-bird.md`.

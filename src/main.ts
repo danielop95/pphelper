@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { accessSync, constants as fsConstants, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
 import { openDb, importXml, listBibles, removeBible, renameBible, localVerses, bibleOutline, type LocalBible } from './bibledb';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -10,11 +10,14 @@ import { mergeSlides, splitSlide, toSlides } from './split';
 import { appendToPro, buildPro, readSlideModel, setProtoDir } from './pro';
 import { createTemplate, defaultBoxes, importTemplate, listLibraries, listTemplates, proPresenterRoots, removeTemplate, templateName, watchDir } from './library';
 import { runSmoke } from './smoke';
+import { pickAsset, prepareUpdate, SWAP_SCRIPT, type UpdateAsset } from './update';
 import { IPC, type Config, type Slide, type TemplateBox, type TemplateDraft, type TextRoles, type Verse } from './types';
 
-const EXTRA_IPC = { local: 'bibles:local', outline: 'bibles:outline', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update', openBibles: 'app:open-bibles', importTemplates: 'templates:import', removeTemplate: 'templates:remove', pickImage: 'templates:pick-image', createTemplate: 'templates:create' } as const;
+const EXTRA_IPC = { local: 'bibles:local', outline: 'bibles:outline', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update', openBibles: 'app:open-bibles', installUpdate: 'app:install-update', updateProgress: 'app:update-progress', importTemplates: 'templates:import', removeTemplate: 'templates:remove', pickImage: 'templates:pick-image', createTemplate: 'templates:create' } as const;
 const RELEASES = 'https://github.com/danielop95/pphelper/releases';
 let updateUrl = '';
+let pendingUpdate: UpdateAsset | undefined;
+let installingUpdate = false;
 function newer(latest: string, current: string): boolean {
   const a = latest.split('.').map(Number), b = current.split('.').map(Number);
   for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
@@ -171,7 +174,7 @@ app.whenReady().then(async () => {
     }
   }
   window = new BrowserWindow({
-    width: 480, height: 820, minWidth: 420, minHeight: 600, alwaysOnTop: true, title: 'pphelper', backgroundColor: '#1e1e1e',
+    width: 560, height: 820, minWidth: 420, minHeight: 600, alwaysOnTop: true, title: 'pphelper', backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false,
       additionalArguments: [`--pphelper-ipc=${JSON.stringify({ ...IPC, ...EXTRA_IPC })}`],
@@ -402,7 +405,6 @@ app.whenReady().then(async () => {
   ipcMain.handle(EXTRA_IPC.update, async event => {
     checkSender(event);
     if (smoke) return null;
-    // ponytail: sin firma no hay auto-instalación; solo se avisa y se abre la release.
     try {
       const response = await fetch('https://api.github.com/repos/danielop95/pphelper/releases/latest', { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
       if (!response.ok) return null;
@@ -410,8 +412,28 @@ app.whenReady().then(async () => {
       const version = String(release.tag_name || '').replace(/^v/, '');
       if (!/^\d+\.\d+\.\d+$/.test(version) || !newer(version, app.getVersion())) return null;
       updateUrl = typeof release.html_url === 'string' && release.html_url.startsWith(`${RELEASES}/`) ? release.html_url : RELEASES;
-      return { version };
+      pendingUpdate = pickAsset(release, version, process.arch);
+      return { version, installable: !!pendingUpdate };
     } catch { return null; }
+  });
+  // Descarga, verifica (SHA-256 de GitHub) y reemplaza la .app; sin cuarentena porque descarga la propia app.
+  ipcMain.handle(EXTRA_IPC.installUpdate, async event => {
+    checkSender(event);
+    if (!app.isPackaged) throw new Error('La actualización automática solo funciona en la app instalada.');
+    if (!pendingUpdate) throw new Error('No hay ninguna actualización lista para instalar. Usa «Ver novedades» para descargarla.');
+    if (installingUpdate) throw new Error('La actualización ya se está instalando.');
+    const current = path.resolve(process.execPath, '../../..');
+    if (!current.endsWith('.app') || current.includes('/AppTranslocation/')) throw new Error('Mueve pphelper a la carpeta Aplicaciones y ábrela desde ahí para poder actualizar.');
+    try { accessSync(path.dirname(current), fsConstants.W_OK); accessSync(current, fsConstants.W_OK); }
+    catch { throw new Error('No hay permiso para reemplazar la app; pide ayuda a quien administra esta Mac.'); }
+    installingUpdate = true;
+    try {
+      const { work, next } = await prepareUpdate(pendingUpdate, dataPath('updates'),
+        fraction => { if (!window.isDestroyed()) window.webContents.send(EXTRA_IPC.updateProgress, Math.min(99, Math.floor(fraction * 100))); }, 'com.nkrease.pphelper');
+      spawn('/bin/sh', ['-c', SWAP_SCRIPT, 'swap', String(process.pid), current, next, work], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.quit(), 300);
+    } catch (error) { throw new Error(spanishError(error)); }
+    finally { installingUpdate = false; }
   });
   ipcMain.handle(EXTRA_IPC.openUpdate, event => {
     checkSender(event);

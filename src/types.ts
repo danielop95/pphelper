@@ -149,7 +149,10 @@ export interface PPHelperAPI {
   editSlides(slides: Slide[], index: number, position?: number): Promise<Slide[]>;
   onDragError(callback: (message: string) => void): () => void;
   onTemplatesChanged(callback: () => void): () => void;
-  checkUpdate(): Promise<{ version: string } | null>;
+  checkUpdate(): Promise<{ version: string; installable: boolean } | null>;
+  /** Descarga e instala la versión nueva; la app se cierra y se reabre actualizada. */
+  installUpdate(): Promise<void>;
+  onUpdateProgress(callback: (percent: number) => void): () => void;
   openUpdate(): Promise<void>;
   openBibles(): Promise<void>;
 }

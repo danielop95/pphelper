@@ -27,6 +27,9 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   };
   /** Clic real con el ratón (los ComboBox de react-aria ignoran `.click()`). */
   const mouse = async (expression: string) => {
+    if (await evaluate(`(() => { const el = ${expression}, r = el.getBoundingClientRect(); if (r.top >= 0 && r.bottom <= innerHeight) return false; el.scrollIntoView({ block: 'nearest' }); return true; })()`)) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
     const at = await evaluate(`(() => { const r = (${expression}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
     win.focus();
     win.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
@@ -51,6 +54,8 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   assert.equal(await evaluate('document.documentElement.dataset.sandboxed'), 'true');
   assert.equal(await evaluate('document.documentElement.dataset.isolated'), 'true');
   assert(win.isAlwaysOnTop());
+  assert.equal(win.getSize()[0], 560, 'Ancho inicial pensado para que los botones quepan en una línea');
+  assert.match(await evaluate(`window.pphelper.installUpdate().then(() => '', e => e.message)`), /solo funciona en la app instalada/);
   assert.match(await evaluate(`window.pphelper.listBibles().then(() => '', e => e.message)`), /Falta la clave/);
   // Validate the new config trust boundary before exercising the UI.
   for (const bad of [{ minChars: -1 }, { templateLimits: { bad: { minChars: 400, maxChars: 2 } } }, { templateLibrary: 'relative' }]) {
@@ -171,7 +176,7 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   win.setSize(420, 600);
   await wait(`innerWidth <= 420`);
   assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), 'Desbordamiento horizontal en ventana mínima');
-  win.setSize(480, 820);
+  win.setSize(560, 820);
   // Importar desde el botón (diálogo simulado): una válida y otra con varias diapositivas.
   const external = dataPath('Externa.pro'), multi = dataPath('Varias.pro');
   writeFileSync(external, readFileSync(template));
@@ -222,6 +227,8 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   await wait(`[...document.fonts].some(face => face.family.startsWith('pp-Georgia') && face.status === 'loaded') && !document.querySelector('[data-testid="font-option"]')`);
   await settle();
   assert.equal(await evaluate(`${query('template-name')}.value`), 'Banner iglesia');
+  await evaluate(`${query('box-verse')}.scrollIntoView({ block: 'center' })`);
+  await settle();
   const boxTop = () => evaluate(`${query('box-verse')}.getBoundingClientRect().top`);
   const before = await boxTop();
   const stage = await evaluate(`(() => { const r = ${query('template-editor')}.querySelector('.template-stage').getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; })()`);

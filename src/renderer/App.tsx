@@ -95,8 +95,10 @@ function App() {
   const [templates, setTemplates] = useState<LibraryItem[]>([]);
   const [templateRevision, setTemplateRevision] = useState(0);
   const [templateModel, setTemplateModel] = useState<SlideModel>();
-  const [update, setUpdate] = useState<string>();
-  useEffect(() => { api.checkUpdate().then(next => setUpdate(next?.version)).catch(() => {}); }, []);
+  const [update, setUpdate] = useState<{ version: string; installable: boolean } | null>(null);
+  // undefined = sin instalar; 0-99 = descargando; 100 = instalando y reiniciando.
+  const [updating, setUpdating] = useState<number>();
+  useEffect(() => { api.checkUpdate().then(setUpdate).catch(() => {}); return api.onUpdateProgress(setUpdating); }, []);
   const [slides, setSlides] = useState<Slide[]>([]);
   const [loaded, setLoaded] = useState({ ref: '', version: '' });
   const [edited, setEdited] = useState(false);
@@ -256,8 +258,16 @@ function App() {
   return <>
     <main className="app-content">
       <header className="app-header"><h1><img src={logo} width={28} height={28} alt="" />pphelper</h1><Button color="tertiary" size="sm" iconLeading={Settings01} data-testid="settings" onPress={() => setSettings(true)}>Ajustes</Button></header>
-      {update && <div className="update-banner" data-testid="update-banner"><span>Hay una versión nueva: {update}</span>
-        <Button size="sm" color="secondary" onPress={() => { void api.openUpdate(); }}>Descargar</Button></div>}
+      {update && <div className="update-banner" data-testid="update-banner" role="status">
+        <span>{updating === undefined ? `Hay una versión nueva: ${update.version}` : updating < 100 ? `Descargando actualización… ${updating} %` : 'Instalando… la app se reiniciará.'}</span>
+        <div className="update-actions">
+          <Button size="sm" color="link-color" iconTrailing={LinkExternal01} isDisabled={updating !== undefined} onPress={() => { void api.openUpdate(); }}>Ver novedades</Button>
+          {update.installable && <Button size="sm" iconLeading={Download01} data-testid="install-update" isDisabled={updating !== undefined} onPress={async () => {
+            setUpdating(0); setError('');
+            try { await api.installUpdate(); setUpdating(100); }
+            catch (reason) { setUpdating(undefined); fail(reason); }
+          }}>Actualizar ahora</Button>}
+        </div></div>}
       <form data-testid="lookup-form" onSubmit={event => { event.preventDefault(); if (!busy) void lookup(); }} className="lookup-form">
         <ComboBox className="flex flex-col gap-1.5" data-testid="reference" aria-label="Pasaje" allowsCustomValue menuTrigger="input" isDisabled={busy}
           inputValue={reference} onInputChange={setReference} selectedKey={null} onSelectionChange={key => { if (key !== null) setReference(String(key)); }}

@@ -179,3 +179,6 @@ h2 span { margin-left: 5px; }
 .font-option[data-selected] { color: var(--color-brand-400); }
 .font-empty { padding: 12px; font-size: 13px; color: var(--color-text-tertiary); }
 .template-style legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
+
+.update-banner { flex-wrap: wrap; }
+.update-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
