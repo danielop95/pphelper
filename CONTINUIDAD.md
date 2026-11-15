@@ -8,6 +8,10 @@ Realizado: ventana inicial 560 px; actualización desde la app (`src/update.ts`)
 
 Verificado: test 45/45, smoke OK; prueba real de punta a punta: copia empaquetada como 0.2.3 en el scratchpad → el usuario pulsó «Actualizar ahora» → se reabrió como 0.2.4 desde la misma ruta, sin atributo de cuarentena, idéntica a la app del `.dmg`, sin temporales.
 
+Publicado: commits `a2f2a31` (feature) y `aff9e88` (versión 0.2.5); release `v0.2.5` con `pphelper-0.2.5-arm64.dmg` (139 825 314 bytes, digest sha256 `1ba7755f…` = local).
+
+Pendiente: el usuario instala la 0.2.5 a mano una última vez en cada Mac (la 0.2.4 no tiene el actualizador); la primera actualización real desde la app será a la 0.2.6.
+
 Hechos no obvios:
 - El primer clic en un botón no puede quitar el bloqueo de Gatekeeper de la primera apertura; la descarga hecha por la propia app no lleva cuarentena.
 - La herramienta Bash mata los procesos lanzados en segundo plano al terminar; para dejar una app abierta usar `open -n`. La app empaquetada no abre `--remote-debugging-port`.
