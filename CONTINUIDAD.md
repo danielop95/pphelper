@@ -2,6 +2,41 @@
 
 Plan vigente: `~/.claude/plans/contexto-en-mi-iglesia-majestic-corbato.md` (fase 1.6, ejecutada). Fases 2 y 3 sin plan.
 
+## 2026-11-15
+
+Realizado (sin commit): plantillas importadas dentro de la app. Plan: `~/.claude/plans/actualmente-la-app-esta-curried-bird.md`.
+- `importTemplate` (`src/library.ts`) + `localizeTemplate` (`src/pro.ts`): valida 1 slide y cajas de texto, copia los medios a `userData/plantillas/media/<nombre>/` y reescribe `absoluteString`; `local` (ROOT_SHOW) se conserva. Acepta `.proBundle` (zip, se extrae con `ditto`).
+- UI: «Importar…» en la sección Plantilla, «Quitar plantilla» con confirmación. Ajustes ya no tiene «Biblioteca de plantillas»; IPC `libraries:list` eliminado.
+- Migración única al arrancar: si no existe `userData/plantillas` y hay `templateLibrary`, se importan sus `.pro` de 1 slide.
+- Arreglos: generación obsoleta devuelve `null` en vez de error; quitar la plantilla seleccionada la deselecciona sin generar con la borrada.
+
+Verificado: build, test 40/40, smoke OK 3/3; import real de `~/Downloads/VERSICULOS.probundle` y de `PANTILLAS/VERSICULOS.pro` a carpeta temporal con fondo en la vista previa.
+
+Hechos no obvios:
+- ProPresenter 22.0.1 (migró el 2026-11-15 13:03) guarda las presentaciones en `Workspaces/<uuid>/DocumentStore/workspace-v1.sqlite3` (snapshots Loro/CRDT), NO como `.pro` en `Libraries/`. `UserWorkspaces/ProPresenter/Libraries` quedó congelado como legado.
+- Los `.pro` exportados por PP22 (sueltos o dentro de `.proBundle`) referencian medios solo con `local {root: ROOT_SHOW, path: "Media/Assets/..."}`, sin `absoluteString`; la vista previa antigua no los resolvía.
+
+Además (mismo día, sin commit): plantilla desde imagen. El usuario quiere subir el banner PNG (p. ej. `~/Downloads/IMG_4410.PNG`, franja granate inferior transparente arriba) en vez de un `.pro`.
+- «Desde imagen…» → `templates:pick-image` (main guarda la ruta; `defaultBoxes` detecta la banda opaca más alta) → `TemplateEditor` (cajas arrastrables, fuente/tamaño/color/alineación) → `templates:create` → `createTemplate`/`buildTemplate` ([versículo, cita, imagen], slide transparente) y `templateRoles[nombre] = {verse: 0, reference: 1}`.
+- Permiso `local-fonts` concedido solo a la ventana principal (el resto sigue denegado).
+- Verificado: test 42/42, smoke 4/4 (diálogo simulado, fuentes > 0, arrastre real con `sendInputEvent`, guardar, quitar por UI). Banner real: banda desde y=757, versículo 192,783 1574×216.
+
+Usuario confirmó: plantilla desde imagen se ve bien en ProPresenter 22 (arrastre a playlist).
+
+Además (mismo día, sin commit): ajuste general de UI (plan en el mismo archivo de plan).
+- `FontPicker` (TemplateEditor): ComboBox react-aria + `Virtualizer`/`ListLayout`, cada opción escrita con su fuente vía `FontFace('pp-<postscript>', local(...))` (la CSP lo permite). `menuTrigger="focus"`, chevron decorativo.
+- Botón primario: texto `text-primary_on-brand` (#1e1e1e). Causa real del texto claro: `.section-heading span` pintaba la etiqueta de los botones del encabezado; acotado a `.section-heading h2 span`. Smoke mide contraste de la etiqueta (≥4.5).
+- Glosario simple (Pasaje, Biblia, Buscar pasaje, Repartir de nuevo, Letras por diapositiva, Eliminar…), iconos y botones `secondary` en vez de `tertiary`.
+- «Enviar a biblioteca» y «Agregar a una presentación» ocultos salvo `config.legacyDelivery` (Ajustes → «Uso ProPresenter 21 o anterior»).
+- Verificado: test 42/42, smoke 3/3 (+ contraste, selector abre con clic real, filtra «georgia», fuente cargada), `impeccable detect` limpio.
+- Hecho no obvio (smoke): el primer clic real tras abrir un modal solo activa la ventana; y hay que esperar a que el popover termine de recolocarse antes de clicar una opción.
+
+Pendiente:
+- Prueba real en ProPresenter 22: crear plantilla desde `IMG_4410.PNG`, generar, arrastrar a playlist y ver banner/letra/posición (sin hacer). Confirma también si PP22 encuentra imágenes en `Application Support/pphelper/plantillas/media`.
+- Editar después una plantilla creada desde imagen (hoy se recrea con el mismo nombre).
+- Probable rotura con PP22 de «Enviar a biblioteca» y «Añadir a presentación» (escriben `.pro` en `UserWorkspaces/.../Libraries`, que PP22 ya no lee). Sin verificar.
+- Commit y versión nueva cuando el usuario lo pida.
+
 ## 2026-10-14
 
 Realizado: autocompletado en «Referencia bíblica». Plan: `~/.claude/plans/vamos-a-lanzar-una-cozy-shore.md`.

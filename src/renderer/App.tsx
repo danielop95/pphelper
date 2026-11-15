@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ComboBox, Heading, ListBox } from 'react-aria-components';
-import { Settings01, Download01, File06 } from '@untitledui/icons';
-import type { BibleOption, BibleOutline, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel, TextRoles } from '../types';
+import { Settings01, Download01, File06, SearchLg, Image01, Upload01, RefreshCw01, Trash01, Scissors01, XClose, LinkExternal01, Link01, Plus, Save01 } from '@untitledui/icons';
+import type { BibleOption, BibleOutline, Config, LibraryItem, Limits, PPHelperAPI, PreparedFile, Slide, SlideModel, TemplateDraft, TextRoles } from '../types';
 import type { LocalBible } from '../bibledb';
 import { refAssist } from '../books';
 import { AppendModal } from './AppendModal';
+import { TemplateEditor } from './TemplateEditor';
 import { SlidePreview } from './SlidePreview';
 import { Button } from './components/base/buttons/button';
 import { Input, InputBase } from './components/base/input/input';
@@ -56,11 +57,12 @@ function LimitFields({ limits, disabled, save }: { limits: Limits; disabled: boo
   const [max, setMax] = useState(String(limits.maxChars));
   useEffect(() => { setMin(String(limits.minChars)); setMax(String(limits.maxChars)); }, [limits.minChars, limits.maxChars]);
   const commit = () => { const min = minInput.current!.value, max = maxInput.current!.value; if (min !== String(limits.minChars) || max !== String(limits.maxChars)) void save({ minChars: min === '' ? NaN : Number(min), maxChars: max === '' ? NaN : Number(max) }); };
-  return <div className="limit-fields">
-    <label>Mín.<input ref={minInput} data-testid="min-chars" type="number" disabled={disabled} min="0" max="10000" value={min} onChange={e => setMin(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
-    <label>Máx.<input ref={maxInput} data-testid="max-chars" type="number" disabled={disabled} min="1" max="10000" value={max} onChange={e => setMax(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
-    <span>caracteres</span>
-  </div>;
+  return <fieldset className="limit-fields">
+    <legend>Letras por diapositiva</legend>
+    <label>Mínimo<input ref={minInput} data-testid="min-chars" type="number" disabled={disabled} min="0" max="10000" value={min} onChange={e => setMin(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
+    <label>Máximo<input ref={maxInput} data-testid="max-chars" type="number" disabled={disabled} min="1" max="10000" value={max} onChange={e => setMax(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
+    <span>Menos letras = más diapositivas.</span>
+  </fieldset>;
 }
 
 function RoleFields({ elements, roles, disabled, save }: { elements: SlideModel['elements']; roles?: TextRoles; disabled: boolean; save: (roles: TextRoles) => Promise<void> }) {
@@ -68,14 +70,14 @@ function RoleFields({ elements, roles, disabled, save }: { elements: SlideModel[
   if (texts.length < 2) return null;
   const verse = roles?.verse ?? texts.find(item => item.element.role === 'verse')?.index ?? texts[0].index;
   const reference = roles?.reference ?? texts.find(item => item.element.role === 'reference')?.index;
-  const label = (index: number) => `Caja ${index + 1} (${Math.round(elements[index].width)}×${Math.round(elements[index].height)})`;
+  const label = (index: number) => `Caja ${index + 1} · ${Math.round(elements[index].width)}×${Math.round(elements[index].height)}`;
   return <div className="role-fields">
-    <label>Versículo
+    <label>Caja del versículo
       <select data-testid="role-verse" disabled={disabled} value={verse} onChange={event => { void save({ verse: Number(event.target.value), reference }); }}>
         {texts.map(item => <option key={item.index} value={item.index}>{label(item.index)}</option>)}
       </select>
     </label>
-    <label>Cita
+    <label>Caja de la cita
       <select data-testid="role-reference" disabled={disabled} value={reference ?? ''} onChange={event => { void save({ verse, reference: event.target.value === '' ? undefined : Number(event.target.value) }); }}>
         <option value="">Ninguna</option>
         {texts.map(item => <option key={item.index} value={item.index}>{label(item.index)}</option>)}
@@ -102,9 +104,11 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState('Escribe una referencia y pulsa Enter.');
+  const [status, setStatus] = useState('Escribe un pasaje y pulsa «Buscar pasaje».');
   const [append, setAppend] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [editor, setEditor] = useState<TemplateDraft & { image: string }>();
   const intent = useRef(0);
   const areas = useRef<(HTMLTextAreaElement | null)[]>([]);
   const fail = (reason: unknown) => setError(message(reason));
@@ -144,12 +148,13 @@ function App() {
     let active = true;
     const current = intent.current;
     setReady(null);
-    if (!slides.length || !loaded.ref || loaded.version !== version || busy) return;
+    // Una plantilla que ya no está en la lista se deselecciona en otro efecto; no generar con ella.
+    if (!slides.length || !loaded.ref || loaded.version !== version || busy || (template && !templates.some(item => item.name === template))) return;
     setStatus('Generando presentación…');
     const timer = setTimeout(() => {
       api.build({ ref: loaded.ref, versionKey: loaded.version, template, slides }).then(file => {
         if (!active || current !== intent.current || !file) return;
-        setReady(file); setStatus(`${slides.length} diapositivas listas.`);
+        setReady(file); setStatus(slides.length === 1 ? '1 diapositiva lista.' : `${slides.length} diapositivas listas.`);
       }).catch(reason => { if (active && current === intent.current) { fail(reason); setStatus('No se pudo generar la presentación.'); } });
     }, 300);
     return () => { active = false; clearTimeout(timer); };
@@ -172,13 +177,13 @@ function App() {
     finally { if (current === intent.current) setBusy(false); }
   }
   async function selectTemplate(name: string) {
-    const current = invalidate(); setBusy(true); setTemplate(name); setTemplateModel(undefined); setError('');
+    const current = invalidate(); setBusy(true); setTemplate(name); setTemplateModel(undefined); setError(''); setRemoving(false);
     try {
       const next = await api.setConfig({ lastTemplate: name });
       if (current !== intent.current) return;
       setConfig(next);
       if (!edited) await reflow(name);
-      else setStatus('Ediciones conservadas. Reorganiza para aplicar los nuevos cortes.');
+      else setStatus('Se conservaron tus cambios. Pulsa «Repartir de nuevo» para aplicar la plantilla.');
     } catch (reason) { fail(reason); }
     finally { if (current === intent.current) setBusy(false); }
   }
@@ -204,6 +209,39 @@ function App() {
     catch (reason) { fail(reason); }
     finally { setBusy(false); }
   }
+  async function importTemplates() {
+    setBusy(true); setError('');
+    try {
+      const result = await api.importTemplates();
+      if (result.errors.length) setError(result.errors.map(item => `${item.file}: ${item.message}`).join('\n'));
+      if (result.imported.length) setStatus(`Plantilla importada: ${result.imported.join(', ')}.`);
+    } catch (reason) { fail(reason); }
+    finally { setBusy(false); }
+  }
+  async function pickImage() {
+    setBusy(true); setError('');
+    try { const draft = await api.pickTemplateImage(); if (draft) setEditor(draft); }
+    catch (reason) { fail(reason); }
+    finally { setBusy(false); }
+  }
+  async function templateCreated(name: string) {
+    setEditor(undefined);
+    try {
+      // Refrescar antes de seleccionar: si no, la plantilla aún no está en la lista y se deselecciona.
+      setTemplates(await api.templates()); setTemplateRevision(v => v + 1);
+      setConfig(await api.getConfig());
+      await selectTemplate(name);
+      setStatus(`Plantilla «${name}» creada.`);
+    } catch (reason) { fail(reason); }
+  }
+  async function removeTemplate(name: string) {
+    setBusy(true); setError('');
+    try { await api.removeTemplate(name); }
+    catch (reason) { fail(reason); setBusy(false); return; }
+    // Deseleccionar sin soltar `busy`: si no, se generaría con la plantilla ya borrada.
+    await selectTemplate('');
+    setStatus(`Plantilla «${name}» eliminada.`);
+  }
   function configChanged(next: Config) {
     setConfig(next);
     if (!Object.hasOwn(next.versions, version)) {
@@ -221,130 +259,134 @@ function App() {
       {update && <div className="update-banner" data-testid="update-banner"><span>Hay una versión nueva: {update}</span>
         <Button size="sm" color="secondary" onPress={() => { void api.openUpdate(); }}>Descargar</Button></div>}
       <form data-testid="lookup-form" onSubmit={event => { event.preventDefault(); if (!busy) void lookup(); }} className="lookup-form">
-        <ComboBox className="flex flex-col gap-1.5" data-testid="reference" aria-label="Referencia bíblica" allowsCustomValue menuTrigger="input" isDisabled={busy}
+        <ComboBox className="flex flex-col gap-1.5" data-testid="reference" aria-label="Pasaje" allowsCustomValue menuTrigger="input" isDisabled={busy}
           inputValue={reference} onInputChange={setReference} selectedKey={null} onSelectionChange={key => { if (key !== null) setReference(String(key)); }}
           defaultFilter={() => true} items={assist.suggestions} isInvalid={assist.invalid}>
-          <Label>Referencia bíblica</Label>
-          <InputBase placeholder="Juan 3:16-18" isInvalid={assist.invalid} isDisabled={busy} />
+          <Label>Pasaje</Label>
+          <InputBase placeholder="Ej.: Juan 3:16-18" isInvalid={assist.invalid} isDisabled={busy} />
           {assist.hint && <HintText isInvalid={assist.invalid}>{assist.hint}</HintText>}
           <Popover size="md"><ListBox className="outline-hidden">{(item: { id: string; label: string }) => <SelectItem id={item.id} label={item.label} />}</ListBox></Popover>
         </ComboBox>
-        <Select label="Versión" aria-label="Versión" placeholder="Elige Biblia" size="sm" data-testid="version" isDisabled={busy} selectedKey={version || null}
+        <Select label="Biblia" aria-label="Biblia" placeholder="Elige una" size="sm" data-testid="version" isDisabled={busy} selectedKey={version || null}
           items={Object.keys(config?.versions ?? {}).map(key => ({ id: key, label: key }))}
           onSelectionChange={key => { const next = String(key); invalidate(); setVersion(next); if (reference.trim()) void lookup(next); }}>
           {item => <Select.Item id={item.id}>{item.label}</Select.Item>}
         </Select>
-        <Button type="submit" data-testid="search" isDisabled={busy || !version || !reference.trim() || assist.invalid} isLoading={busy}>Buscar</Button>
+        <Button type="submit" data-testid="search" isDisabled={busy || !version || !reference.trim() || assist.invalid} isLoading={busy} iconLeading={SearchLg}>Buscar pasaje</Button>
       </form>
       <div role="alert" data-testid="error" className="error-message" hidden={!error}>{error}</div>
       <section aria-labelledby="templates-heading" className="templates-section">
-        <div className="section-heading"><h2 id="templates-heading">Plantilla</h2><span>{templates.length ? `${templates.length} disponibles` : 'Elige una biblioteca en Ajustes'}</span></div>
+        <div className="section-heading"><div><h2 id="templates-heading">Plantilla</h2><p className="section-hint">Diseño de tus diapositivas</p></div>
+          <div className="template-actions"><Button size="sm" iconLeading={Image01} data-testid="template-from-image" isDisabled={busy} onPress={() => { void pickImage(); }}>Crear desde imagen…</Button>
+            <Button size="sm" color="secondary" iconLeading={Upload01} data-testid="import-template" isDisabled={busy} onPress={() => { void importTemplates(); }}>Importar de ProPresenter…</Button></div></div>
+        {!templates.length && <p className="section-help">Crea una plantilla con la imagen de tu banner (PNG de 1920×1080) o importa una presentación de 1 diapositiva exportada desde ProPresenter.</p>}
         <div className="template-grid">
           {choices.map(item => <div key={item.path} className={`template-card${template === item.name ? ' selected' : ''}`}>
             <button type="button" data-testid={item.name ? 'template-card' : 'no-template'} data-template={item.name} aria-pressed={template === item.name} disabled={busy}
               onClick={() => { void selectTemplate(item.name); }}>
               <Preview file={item.path || undefined} revision={templateRevision} roles={roles} onModel={template === item.name ? setTemplateModel : undefined} />
-              <span className="template-name">{item.name || 'Sin plantilla'}</span>
+              <span className="template-name">{item.name || 'Fondo negro simple'}</span>
             </button>
             {template === item.name && <LimitFields limits={limits} disabled={busy} save={saveLimits} />}
             {template === item.name && templateModel && <RoleFields elements={templateModel.elements} roles={roles} disabled={busy} save={saveRoles} />}
+            {template === item.name && item.name && (removing
+              ? <div className="remove-confirm" role="group" aria-label="Confirmar eliminación"><p>¿Eliminar «{item.name}» de la app? ProPresenter no cambia.</p>
+                <Button size="sm" color="secondary" isDisabled={busy} onPress={() => setRemoving(false)}>Cancelar</Button>
+                <Button size="sm" color="primary-destructive" iconLeading={Trash01} data-testid="confirm-remove-template" isDisabled={busy} onPress={() => { void removeTemplate(item.name); }}>Eliminar «{item.name}»</Button></div>
+              : <Button size="sm" color="secondary" iconLeading={Trash01} data-testid="remove-template" isDisabled={busy} onPress={() => setRemoving(true)}>Eliminar plantilla</Button>)}
           </div>)}
         </div>
       </section>
       <section aria-labelledby="slides-heading">
         <div className="section-heading"><h2 id="slides-heading">Diapositivas <span>{slides.length}</span></h2>
-          <Button data-testid="reflow" size="sm" color={edited ? 'primary' : 'secondary'} isDisabled={busy || !slides.length} onPress={() => { void reflow(); }}>Reorganizar</Button>
+          <Button data-testid="reflow" size="sm" color={edited ? 'primary' : 'secondary'} iconLeading={RefreshCw01} isDisabled={busy || !slides.length} onPress={() => { void reflow(); }}>Repartir de nuevo</Button>
         </div>
-        {edited && <p className="edit-note">Tienes ediciones manuales. Reorganizar las reemplaza por el pasaje original.</p>}
+        {edited && <p className="edit-note">Cambiaste el texto a mano. «Repartir de nuevo» vuelve al pasaje original.</p>}
         {!slides.length && <div className="empty-state"><File06 aria-hidden="true" /><p>{busy ? 'Buscando tu pasaje…' : 'Tu próximo pasaje, listo para proyectar'}</p><span>Busca una referencia para revisar y ajustar sus diapositivas.</span></div>}
         <ol className="slide-list" data-testid="slides">{slides.map((slide, index) => <li className="slide-row" key={index} data-testid="slide-row">
-          <div className="slide-heading"><label htmlFor={`slide-${index}`}>{index + 1}. {slide.label}</label><span className="overflow-badge" data-testid="overflow-badge"><Badge color="warning">No cabe</Badge></span></div>
+          <div className="slide-heading"><label htmlFor={`slide-${index}`}>{index + 1}. {slide.label}</label><span className="overflow-badge" data-testid="overflow-badge"><Badge color="warning">Texto muy largo</Badge></span></div>
           <Preview file={selectedFile} slide={slide} version={loaded.version} revision={templateRevision} roles={roles} />
           <textarea id={`slide-${index}`} data-testid="slide-text" ref={node => { areas.current[index] = node; }} value={slide.text} rows={3} disabled={busy}
             onChange={event => { invalidate(); setError(''); setEdited(true); setSlides(slides.map((s, i) => i === index ? { ...s, text: event.target.value } : s)); }} />
-          <div className="slide-actions"><Button size="sm" color="tertiary" data-testid="merge" isDisabled={busy || index === slides.length - 1} onPress={() => { void edit(index); }}>Unir con siguiente</Button>
-            <Button size="sm" color="tertiary" data-testid="split" isDisabled={busy} onPress={() => {
+          <div className="slide-actions"><Button size="sm" color="secondary" iconLeading={Link01} data-testid="merge" isDisabled={busy || index === slides.length - 1} onPress={() => { void edit(index); }}>Unir con la siguiente</Button>
+            <Button size="sm" color="secondary" iconLeading={Scissors01} data-testid="split" isDisabled={busy} onPress={() => {
               const position = areas.current[index]?.selectionStart ?? 0;
-              if (position <= 0 || position >= slide.text.length) { setError('Coloca el cursor dentro del texto para partir la diapositiva.'); areas.current[index]?.focus(); return; }
+              if (position <= 0 || position >= slide.text.length) { setError('Haz clic dentro del texto, donde quieras dividir la diapositiva, y vuelve a pulsar «Dividir en el cursor».'); areas.current[index]?.focus(); return; }
               void edit(index, position);
-            }}>Partir aquí</Button></div>
+            }}>Dividir en el cursor</Button></div>
         </li>)}</ol>
       </section>
-      <p className="preview-note">Vista aproximada. Revisa el diseño final en ProPresenter.</p>
+      <p className="preview-note">Vista previa aproximada: confirma el resultado en ProPresenter.</p>
     </main>
     <footer className="delivery-bar">
       <div data-testid="drag-card" className="drag-card" draggable={!!ready} aria-disabled={!ready} onDragStart={event => { event.preventDefault(); if (ready) api.startDrag(ready.revision); }}>
-        <File06 aria-hidden="true" /><div><strong>{ready?.name || (slides.length ? 'Preparando archivo…' : 'Tu presentación aparecerá aquí')}</strong><span>Arrastra a una playlist de ProPresenter</span></div>
+        <File06 aria-hidden="true" /><div><strong>{ready?.name || (slides.length ? 'Preparando la presentación…' : 'Aquí aparecerá tu presentación')}</strong><span>Arrástrala a una playlist de ProPresenter</span></div>
       </div>
-      <Button color="secondary" size="sm" data-testid="open-append" isDisabled={!ready || sending} onPress={() => setAppend(true)}>Añadir a presentación…</Button>
-      <div className="delivery-actions"><p role="status" data-testid="status">{status}</p><Button size="sm" iconLeading={Download01} data-testid="send-library" isDisabled={!ready || sending} onPress={async () => {
+      {/* ProPresenter 22 ya no lee los .pro de la biblioteca: estas entregas solo para versiones 21 o anteriores. */}
+      {config?.legacyDelivery && <Button color="secondary" size="sm" iconLeading={Plus} data-testid="open-append" isDisabled={!ready || sending} onPress={() => setAppend(true)}>Agregar a una presentación…</Button>}
+      <div className="delivery-actions"><p role="status" data-testid="status">{status}</p>{config?.legacyDelivery && <Button size="sm" iconLeading={Download01} data-testid="send-library" isDisabled={!ready || sending} onPress={async () => {
         if (!ready) return; setSending(true); setError('');
-        try { await api.sendToLibrary(ready.revision); setStatus('Enviado a la biblioteca de ProPresenter.'); } catch (reason) { fail(reason); } finally { setSending(false); }
-      }}>Enviar a biblioteca</Button></div>
+        try { await api.sendToLibrary(ready.revision); setStatus('Enviada a la biblioteca de ProPresenter.'); } catch (reason) { fail(reason); } finally { setSending(false); }
+      }}>Enviar a biblioteca</Button>}</div>
     </footer>
     {config && append && <AppendModal config={config} input={{ ref: loaded.ref, versionKey: loaded.version, template, slides }} close={() => setAppend(false)}
-      done={(name, added, next) => { configChanged(next); setStatus(`Añadidas ${added} diapositivas a ${name}. Copia de seguridad guardada.`); }} />}
+      done={(name, added, next) => { configChanged(next); setStatus(`Se agregaron ${added} diapositivas a «${name}». Se guardó una copia de seguridad.`); }} />}
+    {editor && <TemplateEditor initial={editor} close={() => setEditor(undefined)} done={name => { void templateCreated(name); }} />}
     {config && <Settings open={settings} close={() => setSettings(false)} config={config} changed={configChanged} />}
   </>;
 }
 
 function Settings({ open, close, config, changed }: { open: boolean; close: () => void; config: Config; changed: (next: Config) => void }) {
   const [key, setKey] = useState(config.apiBibleKey);
-  const [libraries, setLibraries] = useState<{ name: string; path: string }[]>([]);
   const [bibles, setBibles] = useState<BibleOption[]>([]);
   const [locals, setLocals] = useState<LocalBible[]>([]);
   const [removing, setRemoving] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setKey(config.apiBibleKey); api.localBibles().then(setLocals).catch(reason => setError(message(reason))); api.listLibraries().then(setLibraries).catch(reason => setError(message(reason))); } }, [open]);
+  useEffect(() => { if (open) { setKey(config.apiBibleKey); api.localBibles().then(setLocals).catch(reason => setError(message(reason))); } }, [open]);
   const run = async (work: () => Promise<void>) => { setBusy(true); setError(''); try { await work(); } catch (reason) { setError(message(reason)); } finally { setBusy(false); } };
-  const folders = libraries.some(item => item.path === config.templateLibrary) || !config.templateLibrary ? libraries : [...libraries, { name: config.templateLibrary.split('/').at(-1) || config.templateLibrary, path: config.templateLibrary }];
-  const options = [{ id: '__none', label: 'Sin biblioteca' }, ...folders.map(item => ({ id: item.path, label: item.name })), { id: '__choose', label: 'Elegir carpeta…' }];
   const available = bibles.length ? bibles : Object.entries(config.versions).filter(([, id]) => !id.startsWith('local:')).map(([key, id]) => ({ key, id, name: key }));
   return <ModalOverlay isOpen={open} onOpenChange={value => { if (!value) close(); }} isDismissable><Modal><Dialog>
-    <div className="settings-content"><div className="section-heading"><Heading slot="title">Ajustes</Heading><Button size="sm" color="tertiary" onPress={close} data-testid="close-settings">Cerrar</Button></div>
+    <div className="settings-content"><div className="section-heading"><Heading slot="title">Ajustes</Heading><Button size="sm" color="secondary" iconLeading={XClose} onPress={close} data-testid="close-settings">Cerrar</Button></div>
       <div role="alert" className="error-message" hidden={!error}>{error}</div>
-      <section><h3>Biblias sin conexión</h3>
-        <p>Importa archivos XML de Biblia que tengas derecho a usar. Los textos se guardan solo en este equipo.</p>
-        <div className="settings-actions"><Button color="secondary" size="sm" data-testid="import-bibles" isDisabled={busy} isLoading={busy} onPress={() => { void run(async () => {
+      <section><h3>Biblias en esta Mac</h3>
+        <p>Agrega Biblias desde archivos XML que tengas derecho a usar. Se guardan en esta Mac y funcionan sin internet.</p>
+        <div className="settings-actions"><Button color="secondary" size="sm" iconLeading={Plus} data-testid="import-bibles" isDisabled={busy} isLoading={busy} onPress={() => { void run(async () => {
           const result = await api.importBibles(); changed(await api.getConfig()); setLocals(await api.localBibles());
           if (result.errors.length) setError(result.errors.map(item => `${item.file}: ${item.message}`).join('\n'));
-        }); }}>Importar XML…</Button>
-        <Button color="tertiary" size="sm" data-testid="download-bibles" onPress={() => { void api.openBibles(); }}>Descargar Biblias XML</Button></div>
+        }); }}>Agregar Biblia (XML)…</Button>
+        <Button color="link-color" size="sm" iconTrailing={LinkExternal01} data-testid="download-bibles" onPress={() => { void api.openBibles(); }}>Conseguir Biblias XML</Button></div>
         <ul className="local-bibles">{locals.map(bible => <li key={bible.id} data-testid="local-bible">
-          <div className="local-bible-heading"><strong>{bible.name}</strong><Badge size="sm" color="gray">sin conexión</Badge></div>
-          <div className="local-bible-actions"><label>Abreviatura<input key={bible.abbreviation} aria-label={`Abreviatura de ${bible.name}`} defaultValue={bible.abbreviation} maxLength={20} disabled={busy}
+          <div className="local-bible-heading"><strong>{bible.name}</strong><Badge size="sm" color="gray">sin internet</Badge></div>
+          <div className="local-bible-actions"><label>Nombre corto<input key={bible.abbreviation} aria-label={`Nombre corto de ${bible.name}`} defaultValue={bible.abbreviation} maxLength={20} disabled={busy}
             onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
             onBlur={event => { const value = event.currentTarget.value; if (value.trim() !== bible.abbreviation) void run(async () => {
               changed(await api.renameBible(bible.id, value)); setLocals(await api.localBibles());
             }); }} /></label><span>{bible.verses.toLocaleString('es')} versículos</span>
-            <Button color="tertiary" size="sm" isDisabled={busy} onPress={() => setRemoving(bible.id)}>Quitar</Button></div>
+            <Button color="secondary" size="sm" iconLeading={Trash01} isDisabled={busy} onPress={() => setRemoving(bible.id)}>Eliminar</Button></div>
           {bible.warnings.map(warning => <p key={warning}>{warning}</p>)}
           {bible.copyright && <p>{bible.copyright}</p>}
-          {removing === bible.id && <div className="remove-confirm" role="group" aria-label="Confirmar eliminación"><p>¿Quitar {bible.abbreviation} de este equipo?</p>
+          {removing === bible.id && <div className="remove-confirm" role="group" aria-label="Confirmar eliminación"><p>¿Eliminar {bible.abbreviation} de esta Mac?</p>
             <Button size="sm" color="secondary" isDisabled={busy} onPress={() => setRemoving('')}>Cancelar</Button>
-            <Button size="sm" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.removeBible(bible.id)); setLocals(await api.localBibles()); setRemoving(''); }); }}>Sí, quitar</Button>
+            <Button size="sm" color="primary-destructive" iconLeading={Trash01} isDisabled={busy} onPress={() => { void run(async () => { changed(await api.removeBible(bible.id)); setLocals(await api.localBibles()); setRemoving(''); }); }}>Eliminar {bible.abbreviation}</Button>
           </div>}
         </li>)}</ul>
       </section>
-      <section><h3>API.Bible</h3><Input type="password" label="Clave de API.Bible" value={key} onChange={setKey} autoComplete="off" />
-        <div className="settings-actions"><Button size="sm" color="secondary" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); setBibles(await api.listBibles()); }); }}>Cargar Biblias</Button>
-          <Button size="sm" color="tertiary" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); }); }}>Guardar clave</Button></div>
+      <section><h3>Biblias por internet (API.Bible)</h3><Input type="password" label="Clave de API.Bible" value={key} onChange={setKey} autoComplete="off" />
+        <div className="settings-actions"><Button size="sm" color="secondary" isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); setBibles(await api.listBibles()); }); }}>Ver Biblias disponibles</Button>
+          <Button size="sm" color="secondary" iconLeading={Save01} isDisabled={busy} onPress={() => { void run(async () => { changed(await api.setConfig({ apiBibleKey: key.trim() })); }); }}>Guardar clave</Button></div>
         <div className="bible-list">{available.length ? available.map(bible => <Checkbox key={bible.id} label={`${bible.key} · ${bible.name}`} isDisabled={busy} isSelected={Object.values(config.versions).includes(bible.id)} onChange={checked => { void run(async () => {
           const versions = { ...config.versions }; for (const [name, id] of Object.entries(versions)) if (id === bible.id) delete versions[name];
           if (checked) { let name = bible.key; for (let n = 2; Object.hasOwn(versions, name); n++) name = `${bible.key} ${n}`; versions[name] = bible.id; }
           changed(await api.setConfig({ versions }));
-        }); }} />) : <p>Carga la lista y marca las versiones que quieras usar.</p>}</div>
+        }); }} />) : <p>Pulsa «Ver Biblias disponibles» y marca las que quieras usar.</p>}</div>
       </section>
-      <section><Select label="Biblioteca de plantillas" selectedKey={config.templateLibrary || '__none'} items={options} isDisabled={busy} data-testid="template-library" onSelectionChange={value => { void run(async () => {
-        const next = value === '__choose' ? await api.chooseLibrary('templateLibrary') : await api.setConfig({ templateLibrary: value === '__none' ? '' : String(value) }); if (next) changed(next);
-      }); }}>{item => <Select.Item id={item.id}>{item.label}</Select.Item>}</Select>
-        <p>Se muestran los archivos .pro de una sola diapositiva. Los cambios en la carpeta se sincronizan automáticamente.</p>
-        {config.templateLibrary && <p className="folder-path">{config.templateLibrary}</p>}
-        {config.templateLibrary && config.templateLibrary === config.libraryPath && <p className="migration-notice" data-testid="shared-library-notice">Las plantillas y los envíos usan la misma biblioteca: cada presentación de una diapositiva aparecerá como plantilla. Crea en ProPresenter una biblioteca solo para plantillas y elígela aquí.</p>}
-        {!config.templateLibrary && Object.keys(config.templates).length > 0 && <p className="migration-notice" data-testid="legacy-notice">Tus plantillas anteriores siguen guardadas. Elige su carpeta como biblioteca para usarlas; no se ha borrado ningún archivo.</p>}
+      <section><h3>ProPresenter 21 o anterior</h3>
+        <Checkbox label="Uso ProPresenter 21 o anterior" hint="Muestra «Enviar a biblioteca» y «Agregar a una presentación». ProPresenter 22 ya no los lee: con él, arrastra a la playlist." isSelected={!!config.legacyDelivery} isDisabled={busy} data-testid="legacy-delivery"
+          onChange={checked => { void run(async () => { changed(await api.setConfig({ legacyDelivery: checked })); }); }} />
+        {config.legacyDelivery && <><p className="folder-path">Biblioteca de ProPresenter: {config.libraryPath || 'ninguna elegida'}</p>
+          <Button color="secondary" size="sm" isDisabled={busy} onPress={() => { void run(async () => { const next = await api.chooseLibrary(); if (next) changed(next); }); }}>Cambiar biblioteca…</Button></>}
       </section>
-      <section><h3>Destino de la presentación</h3><p className="folder-path">{config.libraryPath || 'Ninguna biblioteca seleccionada'}</p><Button color="secondary" size="sm" isDisabled={busy} onPress={() => { void run(async () => { const next = await api.chooseLibrary('libraryPath'); if (next) changed(next); }); }}>Elegir biblioteca de destino</Button></section>
     </div>
   </Dialog></Modal></ModalOverlay>;
 }

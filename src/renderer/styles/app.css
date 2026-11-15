@@ -11,7 +11,10 @@ input, textarea { caret-color: var(--color-brand-500); }
 .lookup-form > button { grid-column: 1 / -1; }
 .section-heading { margin: 24px 0 12px; }
 h2, .section-heading > [slot=title] { font-size: 16px; font-weight: 600; }
-.section-heading span { font-size: 12px; color: var(--color-text-tertiary); font-weight: 400; }
+/* Solo el contador del título; no el texto de los botones del encabezado. */
+.section-heading h2 span { font-size: 12px; color: var(--color-text-tertiary); font-weight: 400; }
+.section-hint { font-size: 12px; color: var(--color-text-tertiary); margin-top: 2px; }
+.section-help { font-size: 13px; line-height: 1.5; color: var(--color-text-tertiary); margin-bottom: 14px; }
 h2 span { margin-left: 5px; }
 .template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .template-card { border: 1px solid var(--color-border-primary); border-radius: 12px; background: var(--color-bg-secondary); padding: 5px; min-width: 0; }
@@ -22,7 +25,8 @@ h2 span { margin-left: 5px; }
 .template-name { display: block; padding: 8px 5px 5px; overflow-wrap: anywhere; font-weight: 550; }
 .template-card .slide-preview, .preview-placeholder { border-radius: 7px; }
 .preview-placeholder { aspect-ratio: 16/9; background: var(--color-bg-tertiary); display: grid; place-items: center; padding: 12px; color: var(--color-text-tertiary); font-size: 12px; }
-.limit-fields { padding: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+.limit-fields { padding: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; border: 0; margin: 0; min-width: 0; }
+.limit-fields > legend { grid-column: 1 / -1; padding: 0; margin-bottom: 4px; font-weight: 600; color: var(--color-text-secondary); }
 .limit-fields label { display: flex; flex-direction: column; gap: 3px; }
 .limit-fields input { border: 1px solid var(--color-border-primary); background: var(--color-bg-secondary); width: 100%; min-width: 0; border-radius: 5px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
 .limit-fields > span { grid-column: 1 / -1; color: var(--color-text-tertiary); }
@@ -53,7 +57,8 @@ h2 span { margin-left: 5px; }
 .drag-card strong { font-size: 13px; overflow-wrap: anywhere; font-weight: 600; }
 .drag-card span { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
 .delivery-actions { margin-top: 9px; }
-.delivery-actions p { font-size: 11px; color: var(--color-text-tertiary); max-width: 45%; }
+.delivery-actions p { font-size: 12px; color: var(--color-text-tertiary); }
+.delivery-actions > button { flex-shrink: 0; }
 .settings-content { padding: 20px; }
 .settings-content .section-heading { margin-top: 0; }
 .settings-content section + section { margin-top: 24px; border-top: 1px solid var(--color-border-secondary); padding-top: 20px; }
@@ -141,8 +146,36 @@ h2 span { margin-left: 5px; }
 .local-bible-actions > span { font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 8px; }
 .local-bible-actions > button { margin-left: auto; }
 .remove-confirm > button + button { margin-left: 8px; }
+.template-card > .remove-confirm, .template-card > button { margin: 6px 4px 2px; }
+.template-card .remove-confirm p { font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 6px; }
 .append-warning { padding: 12px; margin-top: 16px; background: var(--color-bg-primary); border-radius: 8px; }
 .append-warning p { margin: 0; line-height: 1.6; }
 .append-warning.running { border: 1px solid var(--color-brand-500); }
 .append-warning strong { display: block; color: var(--color-brand-400); margin-bottom: 8px; }
 .append-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 20px; }
+
+.templates-section .section-heading { flex-wrap: wrap; align-items: flex-end; }
+.template-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.template-editor { display: grid; gap: 12px; }
+.template-editor > p { margin: 0; }
+.template-name-field, .template-style label { display: grid; gap: 4px; font-size: 12px; color: var(--color-text-tertiary); }
+.template-editor input, .template-editor select { border: 1px solid var(--color-border-primary); background: var(--color-bg-primary); color: var(--color-text-primary); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+.template-editor input[type=color] { padding: 2px; height: 32px; }
+/* Damero: deja ver qué partes del banner son transparentes. */
+.template-stage { position: relative; touch-action: none; border-radius: 6px; margin-top: 14px;
+  background: repeating-conic-gradient(#3a3a3a 0 25%, #2a2a2a 0 50%) 0 0 / 16px 16px; }
+.template-box { position: absolute; z-index: 1000; border: 1px dashed var(--color-brand-500); cursor: move; }
+.template-box > span { position: absolute; bottom: 100%; left: -1px; pointer-events: none; white-space: nowrap; font-size: 10px; padding: 0 4px; background: var(--color-brand-500); color: #fff; border-radius: 4px 4px 0 0; }
+.template-box-handle { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border-radius: 50%; background: var(--color-brand-500); cursor: nwse-resize; }
+.template-style { display: grid; grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.4fr); gap: 10px; border: 1px solid var(--color-border-secondary); border-radius: 8px; padding: 8px 12px 12px; }
+.template-style > .flex { grid-column: 1 / -1; }
+.font-picker-field { position: relative; }
+.font-picker-field input { padding-right: 40px; }
+.font-picker-field { cursor: pointer; }
+.font-picker-toggle { position: absolute; top: 50%; right: 12px; width: 20px; height: 20px; transform: translateY(-50%); color: var(--color-fg-quaternary); pointer-events: none; }
+.font-list { overflow: auto; outline: none; }
+.font-option { display: flex; align-items: center; height: 40px; padding: 0 12px; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-secondary); cursor: default; outline: none; }
+.font-option[data-focused], .font-option[data-hovered] { background: var(--color-bg-primary_hover); color: var(--color-text-primary); }
+.font-option[data-selected] { color: var(--color-brand-400); }
+.font-empty { padding: 12px; font-size: 13px; color: var(--color-text-tertiary); }
+.template-style legend { font-size: 12px; font-weight: 600; padding: 0 4px; }

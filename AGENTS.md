@@ -10,8 +10,8 @@ App de escritorio (Electron + TypeScript) que genera presentaciones `.pro` de ve
 - `src/split.ts`: cortes de slides, funciones puras (`toSlides`, `mergeSlides`, `splitSlide`).
 - `src/pro.ts`: lectura/escritura de `.pro` (protobuf). Genera desde cero, clona la única slide de una plantilla o añade cues a una presentación con respaldo y detección de cambios.
 - `src/main.ts` + `src/preload.ts`: Electron e IPC con sandbox, contextIsolation y validación del emisor.
-- `src/library.ts`: detección de bibliotecas, plantillas de una slide y observación de carpeta.
-- `src/renderer/`: UI productiva React, `App.tsx` y `SlidePreview.tsx`; Vite genera `dist/renderer/`.
+- `src/library.ts`: detección de bibliotecas y workspaces de ProPresenter, creación de plantillas desde imagen (`defaultBoxes`, `createTemplate`), importación de plantillas (`.pro`/`.proBundle`) a `userData/plantillas` con sus medios copiados, y observación de esa carpeta.
+- `src/renderer/`: UI productiva React, `App.tsx`, `SlidePreview.tsx` y `TemplateEditor.tsx` (plantilla desde imagen: cajas arrastrables y fuentes instaladas vía `queryLocalFonts`); Vite genera `dist/renderer/`.
 - `src/smoke.ts`: prueba de integración de la ventana productiva y sus IPC con datos temporales.
 - `src/types.ts`: contratos compartidos. Cambiarlos implica revisar todos los módulos.
 - `proto/`: definiciones de ProPresenter7-Proto (origen en `proto/README.md`). No editar.

@@ -1,7 +1,7 @@
-import { app, dialog, type BrowserWindow } from 'electron';
+import { app, dialog, nativeImage, type BrowserWindow } from 'electron';
 import { strict as assert } from 'node:assert';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, promises as fsPromises } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, promises as fsPromises } from 'node:fs';
 import * as path from 'node:path';
 import * as protobuf from 'protobufjs';
 import { buildPro, PROTO_DIR, readSlideCount, readSlideModel } from './pro';
@@ -25,10 +25,19 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   const type = async (id: string, value: string) => {
     await evaluate(`(() => { const el = ${query(id)}; Object.getOwnPropertyDescriptor(el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   };
+  /** Clic real con el ratón (los ComboBox de react-aria ignoran `.click()`). */
+  const mouse = async (expression: string) => {
+    const at = await evaluate(`(() => { const r = (${expression}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+    win.focus();
+    win.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  };
+  /** Espera a que terminen animaciones y recolocaciones (popover, virtualizer) antes de un clic real. */
+  const settle = async () => { await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))'); await new Promise(resolve => setTimeout(resolve, 250)); };
   const count = (n: number) => `document.querySelectorAll('[data-testid="slide-text"]').length === ${n}`;
   const ready = `${query('drag-card')}.draggable`;
   const library = dataPath('test-library');
-  const templates = dataPath('test-templates');
+  const templates = dataPath('plantillas');
   const cache = dataPath('bibles', 'smoke-bible', 'JHN');
   for (const dir of [library, templates, cache]) mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(cache, '3.json'), JSON.stringify([
@@ -47,7 +56,17 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   for (const bad of [{ minChars: -1 }, { templateLimits: { bad: { minChars: 400, maxChars: 2 } } }, { templateLibrary: 'relative' }]) {
     assert(await evaluate(`window.pphelper.setConfig(${JSON.stringify(bad)}).then(() => false, () => true)`));
   }
-  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ versions: { PRUEBA: 'smoke-bible' }, minChars: 80, maxChars: 180, libraryPath: library, templateLibrary: templates })})`);
+  assert(!(await evaluate(`!!${query('send-library')} || !!${query('open-append')}`)), 'Las entregas antiguas deben estar ocultas por defecto');
+  // Contraste del botón primario (texto oscuro sobre naranja): WCAG AA ≥ 4.5.
+  const contrast = await evaluate(`(() => {
+    const el = ${query('template-from-image')}, cs = getComputedStyle(el), label = getComputedStyle(el.querySelector('[data-text]'));
+    const rgb = c => c.match(/[\\d.]+/g).slice(0, 3).map(Number).map(v => v / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    const lum = c => { const [r, g, b] = rgb(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const [a, b] = [lum(label.color), lum(cs.backgroundColor)].sort((x, y) => y - x);
+    return { ratio: (a + 0.05) / (b + 0.05), color: label.color, background: cs.backgroundColor };
+  })()`);
+  assert(contrast.ratio >= 4.5, `Contraste del botón primario insuficiente: ${JSON.stringify(contrast)}`);
+  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ versions: { PRUEBA: 'smoke-bible' }, minChars: 80, maxChars: 180, libraryPath: library, legacyDelivery: true })})`);
   await win.loadFile(html);
   await wait(`document.documentElement.dataset.ready === 'true'`);
   await type('reference', 'Jn 3:16-17');
@@ -121,14 +140,14 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   await click('template-card');
   await wait(`${count(2)} && ${ready}`);
   await click('send-library');
-  await wait(`${query('status')}.textContent.includes('Enviado')`);
+  await wait(`${query('status')}.textContent.includes('Enviada')`);
   const destination = path.join(library, path.basename(prepared));
   assert.equal(await readSlideCount(destination), 2);
   assert.equal((await readSlideModel(destination)).background, (await readSlideModel(template)).background);
   await type('slide-text', 'Texto sobrescrito para la biblioteca.');
   await wait(ready);
   await click('send-library');
-  await wait(`${query('status')}.textContent.includes('Enviado')`);
+  await wait(`${query('status')}.textContent.includes('Enviada')`);
   assert(readFileSync(destination).includes(Buffer.from('Texto sobrescrito')));
   await click('reflow');
   await wait(`${count(2)} && ${ready}`);
@@ -153,12 +172,81 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   await wait(`innerWidth <= 420`);
   assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), 'Desbordamiento horizontal en ventana mínima');
   win.setSize(480, 820);
-  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ templateLibrary: library })})`);
-  assert.deepEqual(await evaluate('window.pphelper.templates()'), [], 'Cambiar de biblioteca invalida la lista anterior');
-  assert(await evaluate(`window.pphelper.slideModel(${JSON.stringify(template)}).then(() => false, () => true)`));
-  await evaluate(`window.pphelper.setConfig(${JSON.stringify({ templateLibrary: templates })})`);
-  assert.equal((await evaluate('window.pphelper.templates()')).length, 1);
-  unlinkSync(template);
+  // Importar desde el botón (diálogo simulado): una válida y otra con varias diapositivas.
+  const external = dataPath('Externa.pro'), multi = dataPath('Varias.pro');
+  writeFileSync(external, readFileSync(template));
+  await buildPro({ name: 'Varias', slides: [{ label: 'a', text: 'a' }, { label: 'b', text: 'b' }], outPath: multi });
+  const showOpen = dialog.showOpenDialog;
+  dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [external, multi] })) as typeof dialog.showOpenDialog;
+  try {
+    await click('import-template');
+    await wait(`document.querySelectorAll('[data-testid="template-card"]').length === 2 && ${query('error')}.textContent.includes('Varias.pro: Una plantilla debe tener 1 diapositiva')`);
+  } finally { dialog.showOpenDialog = showOpen; }
+  assert.equal((await evaluate('window.pphelper.templates()')).length, 2);
+  await evaluate(`window.pphelper.removeTemplate('Externa')`);
+  await wait(`document.querySelectorAll('[data-testid="template-card"]').length === 1`);
+  assert(await evaluate(`window.pphelper.removeTemplate('../config').then(() => false, () => true)`));
+  // Quitar la plantilla seleccionada desde la UI.
+  await click('remove-template');
+  await wait(`!!${query('confirm-remove-template')}`);
+  await click('confirm-remove-template');
+  await wait(`!${query('template-card')} && ${query('no-template')}.getAttribute('aria-pressed') === 'true' && ${ready}`);
+  assert(!existsSync(template));
+
+  // Plantilla desde imagen: banner 1920×1080 con franja inferior opaca (como el de la iglesia).
+  const banner = Buffer.alloc(1920 * 1080 * 4);
+  for (let i = 760 * 1920 * 4; i < banner.length; i += 4) banner.set([20, 20, 128, 255], i);
+  const bannerFile = dataPath('Banner iglesia.png');
+  writeFileSync(bannerFile, nativeImage.createFromBitmap(banner, { width: 1920, height: 1080 }).toPNG());
+  const pickOpen = dialog.showOpenDialog;
+  dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [bannerFile] })) as typeof dialog.showOpenDialog;
+  try {
+    await click('template-from-image');
+    await wait(`!!${query('template-editor')}`);
+  } finally { dialog.showOpenDialog = pickOpen; }
+  // Selector de tipografías: abre con un clic, filtra al escribir y cada opción usa su propia fuente.
+  // El primer clic real solo activa la ventana; luego, un clic en el campo despliega la lista.
+  await mouse(`${query('template-editor')}.querySelector('h2, [slot=title]')`);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await mouse(`${query('font-verse')}.querySelector('input')`);
+  await wait(`document.querySelectorAll('[data-testid="font-option"]').length > 3`);
+  assert.match(await evaluate(`document.querySelector('[data-testid="font-option"]').style.fontFamily`), /pp-/);
+  await evaluate(`${query('font-verse')}.querySelector('input').focus()`);
+  win.focus();
+  await evaluate(`${query('font-verse')}.querySelector('input').select()`);
+  for (const key of 'georgia') win.webContents.sendInputEvent({ type: 'char', keyCode: key });
+  await wait(`[...document.querySelectorAll('[data-testid="font-option"]')].length > 0 && [...document.querySelectorAll('[data-testid="font-option"]')].every(o => /georgia/i.test(o.textContent))`);
+  await settle();
+  await mouse(`document.querySelector('[data-testid="font-option"]')`);
+  await wait(`/pp-Georgia/.test(${query('template-editor')}.querySelector('[data-role="verse"] .slide-preview-text').style.fontFamily)`);
+  await wait(`[...document.fonts].some(face => face.family.startsWith('pp-Georgia') && face.status === 'loaded') && !document.querySelector('[data-testid="font-option"]')`);
+  await settle();
+  assert.equal(await evaluate(`${query('template-name')}.value`), 'Banner iglesia');
+  const boxTop = () => evaluate(`${query('box-verse')}.getBoundingClientRect().top`);
+  const before = await boxTop();
+  const stage = await evaluate(`(() => { const r = ${query('template-editor')}.querySelector('.template-stage').getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; })()`);
+  assert(before > stage.top + (stage.bottom - stage.top) * 0.65, 'La caja debe proponerse dentro de la franja opaca');
+  const at = await evaluate(`(() => { const r = ${query('box-verse')}.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y - 40, button: 'left' });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y - 40, button: 'left', clickCount: 1 });
+  await wait(`${query('box-verse')}.getBoundingClientRect().top < ${before - 20}`);
+  await mouse(`${query('font-reference')}.querySelector('input')`);
+  await wait(`document.querySelectorAll('[data-testid="font-option"]').length > 3`);
+  await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
+  writeFileSync(path.join(app.getAppPath(), 'scratch/out/font-picker.png'), (await win.webContents.capturePage()).toPNG());
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  await wait(`!document.querySelector('[data-testid="font-option"]')`);
+  await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
+  writeFileSync(path.join(app.getAppPath(), 'scratch/out/template-editor.png'), (await win.webContents.capturePage()).toPNG());
+  await click('save-template');
+  await wait(`!${query('template-editor')} && ${query('template-card')}?.dataset.template === 'Banner iglesia' && ${query('template-card')}.getAttribute('aria-pressed') === 'true' && ${ready}`);
+  assert.deepEqual((await evaluate('window.pphelper.getConfig()')).templateRoles['Banner iglesia'], { verse: 0, reference: 1 });
+  await wait(`!!document.querySelector('[data-testid="slide-row"] [data-role="verse"]')?.textContent && !!document.querySelector('[data-testid="slide-row"] .slide-preview-image')`);
+  await click('remove-template');
+  await wait(`!!${query('confirm-remove-template')}`);
+  await click('confirm-remove-template');
   await wait(`!${query('template-card')} && ${query('no-template')}.getAttribute('aria-pressed') === 'true' && ${ready}`);
   await type('reference', 'desconocido');
   await click('search');
@@ -226,7 +314,7 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
     await click('settings');
     await wait(`!!${query('local-bible')}`);
     assert(await evaluate(`!!${query('download-bibles')}`), 'Falta el botón de descarga de Biblias');
-    assert.match(await evaluate(`${query('local-bible')}.textContent`), /sin conexión.*7018 versículos.*agrupados.*libre para pruebas/);
+    assert.match(await evaluate(`${query('local-bible')}.textContent`), /sin internet.*7018 versículos.*agrupados.*libre para pruebas/);
     await evaluate('document.fonts.ready');
     await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
     writeFileSync(path.join(out, 'f16-settings.png'), (await win.webContents.capturePage()).toPNG());
@@ -253,7 +341,7 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
     await evaluate('Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))');
     writeFileSync(path.join(out, 'f16-append.png'), (await win.webContents.capturePage()).toPNG());
     await click('confirm-append');
-    await wait(`${query('status')}.textContent.includes('Añadidas 1 diapositivas') && !document.querySelector('[role="dialog"]')`);
+    await wait(`${query('status')}.textContent.includes('Se agregaron 1 diapositivas') && !document.querySelector('[role="dialog"]')`);
     const after = typePro.decode(readFileSync(destination)) as protobuf.ReflectedMessage;
     assert.equal(after.cues.length, old.cues.length + 1);
     oldCues.forEach((bytes: Uint8Array, i: number) => assert.deepEqual(cueType.encode(after.cues[i]).finish(), bytes));
@@ -268,6 +356,6 @@ export async function runSmoke(win: BrowserWindow, dataPath: (...parts: string[]
   } finally { dialog.showOpenDialog = showOpenDialog; globalThis.fetch = fetch; }
   assert.deepEqual(errors, []);
   clearTimeout(timeout);
-  console.log('OK smoke: React, sandbox/CSP, Enter, caché, previews, overflow, unión/división, reflow, límites, watcher crear/borrar, edición conservada, clonado, biblioteca/sobrescritura, ventana mínima, XML local sin red/API key, rangos, append con backup y capturas.');
+  console.log('OK smoke: React, sandbox/CSP, Enter, caché, previews, overflow, unión/división, reflow, límites, watcher crear, importar/quitar plantillas, plantilla desde imagen con arrastre, edición conservada, clonado, biblioteca/sobrescritura, ventana mínima, XML local sin red/API key, rangos, append con backup y capturas.');
   app.quit();
 }

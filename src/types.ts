@@ -34,7 +34,7 @@ export interface TextRoles {
 export interface Config {
   apiBibleKey: string;
   versions: Record<string, string>;
-  /** Obsoleto: las plantillas ahora se detectan en `templateLibrary`. Se conserva para leer configs antiguas. */
+  /** Obsoleto: se conserva para leer configs antiguas. */
   templates: Record<string, string>;
   maxChars: number;
   minChars?: number;
@@ -43,10 +43,12 @@ export interface Config {
   /** Caja de versículo/cita elegida a mano por nombre de plantilla; si falta, se detecta por área. */
   templateRoles?: Record<string, TextRoles>;
   libraryPath?: string;
-  /** Carpeta de biblioteca de ProPresenter cuyos .pro de una slide son plantillas. */
+  /** Obsoleto: antigua biblioteca de plantillas; solo se usa para migrarlas a la app y excluirla de destinos. */
   templateLibrary?: string;
   lastTemplate?: string;
   lastTarget?: string;
+  /** Muestra las entregas por carpeta (biblioteca/añadir), solo útiles hasta ProPresenter 21. */
+  legacyDelivery?: boolean;
 }
 
 /** Elemento de una slide, en unidades de la slide (px de diseño), listo para dibujar. */
@@ -75,6 +77,20 @@ export interface SlideElement {
   /** true si el elemento usa algo que el render no soporta (degradado, forma no rectangular, etc.). */
   unsupported?: boolean;
 }
+
+/** Caja de texto de una plantilla creada desde imagen, en unidades de slide (1920×1080). */
+export interface TemplateBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  font: { postscriptName: string; family: string; style: string };
+  size: number;
+  /** '#rrggbb' */
+  color: string;
+  align: 'left' | 'center' | 'right' | 'justify';
+}
+export interface TemplateDraft { name: string; verse: TemplateBox; reference: TemplateBox }
 
 export interface SlideModel {
   width: number;
@@ -121,11 +137,15 @@ export interface PPHelperAPI {
   proTargets(): Promise<{ targets: LibraryItem[]; proPresenterRunning: boolean }>;
   appendPro(input: { targetPath: string; ref: string; versionKey: string; template: string; slides: Slide[] }): Promise<{ backup: string; added: number; proPresenterRunning: boolean }>;
 
-  listLibraries(): Promise<{ name: string; path: string }[]>;
   templates(): Promise<LibraryItem[]>;
   slideModel(file: string, slide?: { text: string; reference: string }, roles?: TextRoles): Promise<SlideModel>;
   reflow(template: string): Promise<Slide[]>;
-  chooseLibrary(target: 'libraryPath' | 'templateLibrary'): Promise<Config | null>;
+  chooseLibrary(): Promise<Config | null>;
+  importTemplates(): Promise<{ imported: string[]; errors: { file: string; message: string }[] }>;
+  removeTemplate(name: string): Promise<void>;
+  /** Elige un PNG/JPG; main recuerda la ruta y propone cajas dentro de la zona opaca. */
+  pickTemplateImage(): Promise<(Omit<TemplateDraft, 'name'> & { name: string; image: string }) | null>;
+  createTemplate(draft: TemplateDraft): Promise<string>;
   editSlides(slides: Slide[], index: number, position?: number): Promise<Slide[]>;
   onDragError(callback: (message: string) => void): () => void;
   onTemplatesChanged(callback: () => void): () => void;

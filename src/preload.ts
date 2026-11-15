@@ -4,7 +4,7 @@ import type { IPC, Config, Slide, PPHelperAPI } from './types';
 // Sandbox preloads cannot require local modules. Main passes constants, never secrets.
 const channels = JSON.parse(process.argv.find(value => value.startsWith('--pphelper-ipc='))!.slice('--pphelper-ipc='.length)) as typeof IPC & {
   local: string; outline: string; importBibles: string; removeBible: string; renameBible: string; targets: string; append: string;
-  library: string; bibles: string; libraries: string; folder: string; edit: string; dragError: string; update: string; openUpdate: string; openBibles: string;
+  library: string; bibles: string; folder: string; edit: string; dragError: string; update: string; openUpdate: string; openBibles: string; importTemplates: string; removeTemplate: string; pickImage: string; createTemplate: string;
 };
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, value: T) => callback(value);
@@ -26,11 +26,14 @@ const api: PPHelperAPI = {
   proTargets: () => ipcRenderer.invoke(channels.targets),
   appendPro: input => ipcRenderer.invoke(channels.append, input),
   listBibles: () => ipcRenderer.invoke(channels.bibles),
-  listLibraries: () => ipcRenderer.invoke(channels.libraries),
   templates: () => ipcRenderer.invoke(channels.templates),
   slideModel: (file, slide, roles) => ipcRenderer.invoke(channels.slideModel, file, slide, roles),
   reflow: template => ipcRenderer.invoke(channels.reflow, template),
-  chooseLibrary: target => ipcRenderer.invoke(channels.folder, target),
+  chooseLibrary: () => ipcRenderer.invoke(channels.folder),
+  importTemplates: () => ipcRenderer.invoke(channels.importTemplates),
+  removeTemplate: name => ipcRenderer.invoke(channels.removeTemplate, name),
+  pickTemplateImage: () => ipcRenderer.invoke(channels.pickImage),
+  createTemplate: draft => ipcRenderer.invoke(channels.createTemplate, draft),
   editSlides: (slides: Slide[], index: number, position?: number) => ipcRenderer.invoke(channels.edit, slides, index, position),
   onDragError: callback => subscribe(channels.dragError, callback),
   onTemplatesChanged: callback => subscribe(channels.templatesChanged, callback),

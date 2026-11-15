@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell, type IpcMainEvent, type IpcMainInvokeEvent, type NativeImage } from 'electron';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { openDb, importXml, listBibles, removeBible, renameBible, localVerses, bibleOutline, type LocalBible } from './bibledb';
@@ -8,11 +8,11 @@ import { fetchVerses } from './bible';
 import { formatRef, parseRef } from './books';
 import { mergeSlides, splitSlide, toSlides } from './split';
 import { appendToPro, buildPro, readSlideModel, setProtoDir } from './pro';
-import { listLibraries, listTemplates, watchDir } from './library';
+import { createTemplate, defaultBoxes, importTemplate, listLibraries, listTemplates, proPresenterRoots, removeTemplate, templateName, watchDir } from './library';
 import { runSmoke } from './smoke';
-import { IPC, type Config, type Slide, type TextRoles, type Verse } from './types';
+import { IPC, type Config, type Slide, type TemplateBox, type TemplateDraft, type TextRoles, type Verse } from './types';
 
-const EXTRA_IPC = { local: 'bibles:local', outline: 'bibles:outline', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', libraries: 'libraries:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update', openBibles: 'app:open-bibles' } as const;
+const EXTRA_IPC = { local: 'bibles:local', outline: 'bibles:outline', importBibles: 'bibles:import', removeBible: 'bibles:remove', renameBible: 'bibles:rename', targets: 'pro:targets', append: 'pro:append', library: 'pro:library', bibles: 'bibles:list', folder: 'library:choose', edit: 'slides:edit', dragError: 'pro:drag-error', update: 'app:update', openUpdate: 'app:open-update', openBibles: 'app:open-bibles', importTemplates: 'templates:import', removeTemplate: 'templates:remove', pickImage: 'templates:pick-image', createTemplate: 'templates:create' } as const;
 const RELEASES = 'https://github.com/danielop95/pphelper/releases';
 let updateUrl = '';
 function newer(latest: string, current: string): boolean {
@@ -36,9 +36,11 @@ let lookupGeneration = 0;
 let lastLookup: { verses: Verse[]; bookName: string; ref: string } | undefined;
 let stopWatching = () => {};
 let templateCache: ReturnType<typeof listTemplates> | undefined;
+let importingTemplates = false;
+let pickedImage: { path: string; width: number; height: number } | undefined;
 function templates(): ReturnType<typeof listTemplates> {
   if (!templateCache) {
-    const pending = (config.templateLibrary ? listTemplates(config.templateLibrary) : Promise.resolve([])).catch(error => {
+    const pending = listTemplates(dataPath('plantillas')).catch(error => {
       if (templateCache === pending) templateCache = undefined;
       throw error;
     });
@@ -49,11 +51,11 @@ function templates(): ReturnType<typeof listTemplates> {
 function watchTemplates(): void {
   stopWatching();
   templateCache = undefined;
-  stopWatching = config.templateLibrary ? watchDir(config.templateLibrary, () => {
+  stopWatching = watchDir(dataPath('plantillas'), () => {
     templateCache = undefined;
     generation++; prepared = undefined;
     if (!window.isDestroyed()) window.webContents.send(IPC.templatesChanged);
-  }) : () => {};
+  });
 }
 async function templatePath(name: string): Promise<string | undefined> {
   if (typeof name !== 'string') throw new Error('Plantilla no reconocida.');
@@ -75,6 +77,14 @@ function checkSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
 function validSlides(value: unknown): asserts value is Slide[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 2000 || !value.every(s => s && typeof s.label === 'string' && typeof s.text === 'string' && s.label.length <= 500 && s.text.length <= 100000)) throw new Error('Las diapositivas contienen datos inválidos.');
 }
+function validDraft(draft: TemplateDraft): void {
+  const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length <= 200;
+  const box = (b: TemplateBox) => !!b && [b.x, b.y, b.width, b.height, b.size].every(Number.isFinite)
+    && Math.abs(b.x) <= 3840 && Math.abs(b.y) <= 2160 && b.width >= 10 && b.width <= 3840 && b.height >= 10 && b.height <= 2160
+    && b.size >= 4 && b.size <= 400 && typeof b.color === 'string' && /^#[0-9a-f]{6}$/i.test(b.color)
+    && ['left', 'center', 'right', 'justify'].includes(b.align) && !!b.font && text(b.font.postscriptName) && text(b.font.family) && text(b.font.style);
+  if (!draft || typeof draft.name !== 'string' || draft.name.length > 120 || !box(draft.verse) || !box(draft.reference)) throw new Error('Datos de plantilla inválidos.');
+}
 function validateConfig(value: Config): void {
   if (typeof value.apiBibleKey !== 'string' || !Number.isSafeInteger(value.maxChars) || value.maxChars < 1 || value.maxChars > 10000) throw new Error('El límite de caracteres debe estar entre 1 y 10000.');
   for (const map of [value.versions, value.templates]) {
@@ -85,6 +95,7 @@ function validateConfig(value: Config): void {
   if (value.templateLimits !== undefined && (!value.templateLimits || typeof value.templateLimits !== 'object' || Array.isArray(value.templateLimits) || !Object.entries(value.templateLimits).every(([name, limits]) => name.length <= 255 && limits && Number.isSafeInteger(limits.minChars) && Number.isSafeInteger(limits.maxChars) && limits.minChars >= 0 && limits.maxChars >= 1 && limits.maxChars <= 10000 && limits.minChars <= limits.maxChars))) throw new Error('Los límites de plantilla deben ser enteros: 0 ≤ mínimo ≤ máximo ≤ 10000.');
   if (value.templateRoles !== undefined && (!value.templateRoles || typeof value.templateRoles !== 'object' || Array.isArray(value.templateRoles) || !Object.entries(value.templateRoles).every(([name, roles]) => name.length <= 255 && roles && Number.isSafeInteger(roles.verse) && roles.verse >= 0 && (roles.reference === undefined || (Number.isSafeInteger(roles.reference) && roles.reference >= 0))))) throw new Error('Las cajas de versículo/cita elegidas para la plantilla son inválidas.');
   if (value.lastTarget !== undefined && (typeof value.lastTarget !== 'string' || (value.lastTarget !== '' && !path.isAbsolute(value.lastTarget)))) throw new Error('Presentación de destino inválida.');
+  if (value.legacyDelivery !== undefined && typeof value.legacyDelivery !== 'boolean') throw new Error('Ajuste no admitido.');
   if (value.lastTemplate !== undefined && (typeof value.lastTemplate !== 'string' || value.lastTemplate.length > 255)) throw new Error('Plantilla no reconocida.');
   if (value.templateLibrary !== undefined && (typeof value.templateLibrary !== 'string' || (value.templateLibrary !== '' && !path.isAbsolute(value.templateLibrary)))) throw new Error('Elige una ruta absoluta para las plantillas.');
   if (value.libraryPath !== undefined && (typeof value.libraryPath !== 'string' || (value.libraryPath !== '' && !path.isAbsolute(value.libraryPath)))) throw new Error('Elige una ruta absoluta para la biblioteca.');
@@ -93,9 +104,7 @@ function saveConfig(next: Config): Config {
   validateConfig(next);
   writeFileSync(dataPath('config.json.tmp'), JSON.stringify(next, null, 2), { mode: 0o600 });
   renameSync(dataPath('config.json.tmp'), dataPath('config.json'));
-  const changed = config.templateLibrary !== next.templateLibrary;
   config = next;
-  if (changed) { watchTemplates(); window.webContents.send(IPC.templatesChanged); }
   return config;
 }
 function localVersions(id: string, abbreviation?: string): Record<string, string> {
@@ -130,7 +139,7 @@ function proPresenterRunning(): Promise<boolean> {
 function spanishError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/fetch failed|network|timeout|aborted/i.test(message)) return 'Sin conexión a API.Bible. Comprueba la red y vuelve a intentar; los capítulos guardados siguen disponibles.';
-  if (/ENOENT/.test(message)) return 'No se encontró el archivo o la carpeta. Revisa la plantilla y la ruta de biblioteca.';
+  if (/ENOENT/.test(message)) return 'No se encontró el archivo o la carpeta. Revisa la plantilla o, en Ajustes, la biblioteca de ProPresenter.';
   if (/EACCES|EPERM/.test(message)) return 'No hay permisos para acceder al archivo o carpeta.';
   return message;
 }
@@ -151,6 +160,16 @@ app.whenReady().then(async () => {
       config = saved;
     }
   } catch { configError = 'No se pudo leer config.json. Revisa los ajustes antes de guardarlos.'; }
+  if (!existsSync(dataPath('plantillas'))) {
+    mkdirSync(dataPath('plantillas'));
+    // Migración única: las plantillas de la antigua biblioteca de plantillas pasan a la app.
+    if (config.templateLibrary) {
+      const roots = await proPresenterRoots();
+      for (const item of await listTemplates(config.templateLibrary).catch(() => [])) {
+        await importTemplate(item.path, dataPath('plantillas'), roots).catch(() => { /* Se puede importar a mano después. */ });
+      }
+    }
+  }
   window = new BrowserWindow({
     width: 480, height: 820, minWidth: 420, minHeight: 600, alwaysOnTop: true, title: 'pphelper', backgroundColor: '#1e1e1e',
     webPreferences: {
@@ -161,11 +180,13 @@ app.whenReady().then(async () => {
   watchTemplates();
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
-  window.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  // Solo la lista de fuentes instaladas (editor de plantillas); todo lo demás se deniega.
+  window.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(wc === window.webContents && permission === 'local-fonts'));
+  window.webContents.session.setPermissionCheckHandler((wc, permission) => wc === window.webContents && permission === 'local-fonts');
   ipcMain.handle(IPC.config, event => { checkSender(event); return { ...config, error: configError }; });
   ipcMain.handle(IPC.configSet, (event, partial: Partial<Config>) => {
     checkSender(event);
-    if (!partial || typeof partial !== 'object' || Array.isArray(partial) || Object.keys(partial).some(k => !['apiBibleKey', 'versions', 'minChars', 'maxChars', 'libraryPath', 'templateLibrary', 'templateLimits', 'templateRoles', 'lastTemplate', 'lastTarget'].includes(k))) throw new Error('Ajuste no admitido.');
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial) || Object.keys(partial).some(k => !['apiBibleKey', 'versions', 'minChars', 'maxChars', 'libraryPath', 'templateLimits', 'templateRoles', 'lastTemplate', 'lastTarget', 'legacyDelivery'].includes(k))) throw new Error('Ajuste no admitido.');
     try { const saved = saveConfig({ ...config, ...partial }); configError = ''; return saved; }
     catch (error) { throw new Error(spanishError(error)); }
   });
@@ -253,7 +274,6 @@ app.whenReady().then(async () => {
     return currentSlides(template);
   });
   ipcMain.handle(IPC.templates, event => { checkSender(event); return templates(); });
-  ipcMain.handle(EXTRA_IPC.libraries, event => { checkSender(event); return listLibraries(); });
   ipcMain.handle(IPC.slideModel, async (event, file: string, slide?: { text: string; reference: string }, roles?: TextRoles) => {
     checkSender(event);
     if (typeof file !== 'string' || !(await templates()).some(item => item.path === file)) throw new Error('Plantilla no reconocida.');
@@ -286,8 +306,10 @@ app.whenReady().then(async () => {
       renameSync(temporary, file);
       prepared = { file, icon, revision };
       return { name: path.basename(file), revision };
-    } catch (error) { throw new Error(spanishError(error)); }
-    finally { rmSync(temporary, { force: true }); }
+    } catch (error) {
+      if (revision !== generation) return null; // Plantilla o datos cambiaron durante la generación.
+      throw new Error(spanishError(error));
+    } finally { rmSync(temporary, { force: true }); }
   });
   ipcMain.on(IPC.dragOut, (event, revision: number) => {
     try {
@@ -309,11 +331,55 @@ app.whenReady().then(async () => {
       throw new Error(spanishError(error));
     }
   });
-  ipcMain.handle(EXTRA_IPC.folder, async (event, target: 'libraryPath' | 'templateLibrary' = 'libraryPath') => {
+  ipcMain.handle(EXTRA_IPC.folder, async event => {
     checkSender(event);
-    if (!['libraryPath', 'templateLibrary'].includes(target)) throw new Error('Carpeta no admitida.');
-    const result = await dialog.showOpenDialog(window, { title: target === 'templateLibrary' ? 'Elegir biblioteca de plantillas' : 'Elegir biblioteca de ProPresenter', properties: ['openDirectory'] });
-    return result.canceled ? null : saveConfig({ ...config, [target]: result.filePaths[0] });
+    const result = await dialog.showOpenDialog(window, { title: 'Elegir biblioteca de ProPresenter', properties: ['openDirectory'] });
+    return result.canceled ? null : saveConfig({ ...config, libraryPath: result.filePaths[0] });
+  });
+  ipcMain.handle(EXTRA_IPC.importTemplates, async event => {
+    checkSender(event);
+    if (importingTemplates) throw new Error('Ya hay una importación de plantillas en curso.');
+    importingTemplates = true;
+    const imported: string[] = [], errors: { file: string; message: string }[] = [];
+    try {
+      const result = await dialog.showOpenDialog(window, { title: 'Importar plantillas de ProPresenter', properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Presentación de ProPresenter', extensions: ['pro', 'proBundle', 'probundle'] }] });
+      const roots = await proPresenterRoots();
+      if (!result.canceled) for (const file of result.filePaths) {
+        try { imported.push(await importTemplate(file, dataPath('plantillas'), roots)); }
+        catch (error) { errors.push({ file: path.basename(file), message: spanishError(error) }); }
+      }
+      return { imported, errors };
+    } finally { importingTemplates = false; }
+  });
+  ipcMain.handle(EXTRA_IPC.pickImage, async event => {
+    checkSender(event);
+    const result = await dialog.showOpenDialog(window, { title: 'Elegir imagen del banner', properties: ['openFile'], filters: [{ name: 'Imagen', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (result.canceled) return null;
+    const file = result.filePaths[0];
+    const image = nativeImage.createFromPath(file);
+    if (image.isEmpty()) throw new Error('No se pudo leer la imagen. Usa un PNG o JPG.');
+    const { width, height } = image.getSize();
+    pickedImage = { path: file, width, height };
+    return { name: templateName(file), image: image.toDataURL(), ...defaultBoxes(image.toBitmap(), width, height) };
+  });
+  ipcMain.handle(EXTRA_IPC.createTemplate, async (event, draft: TemplateDraft) => {
+    checkSender(event);
+    if (!pickedImage) throw new Error('Elige primero la imagen del banner.');
+    validDraft(draft);
+    try {
+      const name = await createTemplate(draft, pickedImage, dataPath('plantillas'));
+      templateCache = undefined; generation++; prepared = undefined;
+      saveConfig({ ...config, templateRoles: { ...config.templateRoles, [name]: { verse: 0, reference: 1 } } });
+      return name;
+    } catch (error) { throw new Error(spanishError(error)); }
+  });
+  ipcMain.handle(EXTRA_IPC.removeTemplate, async (event, name: string) => {
+    checkSender(event);
+    if (typeof name !== 'string' || !(await templates()).some(item => item.name === name)) throw new Error('Plantilla no reconocida.');
+    templateCache = undefined; generation++; prepared = undefined;
+    try { await removeTemplate(name, dataPath('plantillas')); }
+    catch (error) { throw new Error(spanishError(error)); }
   });
   ipcMain.handle(EXTRA_IPC.bibles, async event => {
     checkSender(event);

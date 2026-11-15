@@ -27,15 +27,15 @@ export function AppendModal({ config, input, close, done }: {
   }, []);
   return <ModalOverlay isOpen isDismissable={!busy} onOpenChange={open => { if (!open && !busy) close(); }}><Modal><Dialog>
     <div className="settings-content append-content">
-      <div className="section-heading"><Heading slot="title">Añadir a presentación</Heading></div>
-      <Select label="Presentación" data-testid="append-target" placeholder={loading ? 'Cargando…' : 'Elige presentación'} isDisabled={busy || loading} selectedKey={target || null}
+      <div className="section-heading"><Heading slot="title">Agregar a una presentación</Heading></div>
+      <Select label="Presentación" data-testid="append-target" placeholder={loading ? 'Cargando…' : 'Elige una presentación'} isDisabled={busy || loading} selectedKey={target || null}
         items={targets.map(item => ({ id: item.path, label: `${item.library} · ${item.name}` }))} onSelectionChange={key => setTarget(String(key))}>
         {item => <Select.Item id={item.id}>{item.label}</Select.Item>}
       </Select>
-      {!loading && !targets.length && <p>No hay presentaciones disponibles. Elige una biblioteca de destino en Ajustes; la biblioteca de plantillas se excluye.</p>}
+      {!loading && !targets.length && <p>No hay presentaciones. Elige la biblioteca de ProPresenter en Ajustes.</p>}
       <div className={running ? 'append-warning running' : 'append-warning'}>
         {running && <strong>ProPresenter está abierto.</strong>}
-        <p>ProPresenter solo lee el archivo la primera vez que abres esa presentación. Si ya la abriste desde que iniciaste ProPresenter, reinícialo para ver los cambios. Si guardas cambios de esa presentación en ProPresenter después, podrías perder lo añadido; hay copia de seguridad.</p>
+        <p>ProPresenter solo lee el archivo la primera vez que abres esa presentación. Si ya la abriste desde que iniciaste ProPresenter, reinícialo para ver los cambios. Si guardas cambios de esa presentación en ProPresenter después, podrías perder lo agregado; hay copia de seguridad.</p>
       </div>
       <div role="alert" className="error-message" hidden={!error}>{error}</div>
       <div className="settings-actions append-actions"><Button color="secondary" data-testid="close-append" isDisabled={busy} onPress={close}>Cancelar</Button>
@@ -47,7 +47,7 @@ export function AppendModal({ config, input, close, done }: {
             done(targets.find(item => item.path === target)!.name, result.added, { ...config, lastTarget: target }); close();
           } catch (reason) { setError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, '')); }
           finally { setBusy(false); }
-        }}>Añadir {input.slides.length} diapositivas</Button>
+        }}>Agregar {input.slides.length === 1 ? '1 diapositiva' : `${input.slides.length} diapositivas`}</Button>
       </div>
     </div>
   </Dialog></Modal></ModalOverlay>;

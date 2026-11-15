@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
-import { readFileSync, renameSync, statSync } from 'node:fs';
+import { copyFile, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { existsSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as protobuf from 'protobufjs';
-import type { Slide, SlideElement, SlideModel, TextRoles } from './types';
+import type { Slide, SlideElement, SlideModel, TemplateBox, TextRoles } from './types';
 
 export const PROTO_DIR = path.join(__dirname, '..', '..', 'proto');
 let protoDir = PROTO_DIR;
@@ -273,6 +274,89 @@ export async function appendToPro(opts: {
     renameSync(temporary, opts.targetPath);
     return { backup, added: opts.slides.length };
   } finally { await rm(temporary, { force: true }); }
+}
+
+// Raíces de URL.LocalRelativePath (url.proto); ROOT_SHOW (10) es el workspace de ProPresenter.
+const LOCAL_ROOTS: Record<number, string> = { 1: '/', 2: '', 3: 'Documents', 4: 'Downloads', 5: 'Music', 6: 'Pictures', 7: 'Movies', 8: 'Library/Application Support', 11: 'Desktop' };
+
+function mediaUrls(value: unknown, found: protobuf.ReflectedMessage[] = []): protobuf.ReflectedMessage[] {
+  if (!value || typeof value !== 'object' || ArrayBuffer.isView(value)) return found;
+  const message = value as protobuf.ReflectedMessage;
+  if (message.$type?.fullName === '.rv.data.URL') found.push(message);
+  else for (const child of Object.values(message)) mediaUrls(child, found);
+  return found;
+}
+
+/**
+ * Valida una plantilla de una slide y copia sus medios a `stageDir`.
+ * Devuelve el .pro con `absoluteString` apuntando a esas copias dentro de `mediaDir`, su ubicación definitiva; `local` se conserva
+ * para que ProPresenter siga pudiendo resolver el medio en su propio workspace.
+ */
+export async function localizeTemplate(file: string, stageDir: string, mediaDir: string, showRoots: string[]): Promise<Uint8Array> {
+  const root = await loadProtos();
+  const Presentation = root.lookupType('rv.data.Presentation');
+  let presentation: protobuf.ReflectedMessage;
+  try { presentation = decode(Presentation, await readFile(file)); }
+  catch { throw new Error('No parece una presentación de ProPresenter.'); }
+  const bases = presentation.cues.flatMap((cue: protobuf.ReflectedMessage) => cue.actions)
+    .filter((action: protobuf.ReflectedMessage) => action.slide?.presentation?.baseSlide)
+    .map((action: protobuf.ReflectedMessage) => action.slide.presentation.baseSlide);
+  if (bases.length !== 1) throw new Error(`Una plantilla debe tener 1 diapositiva y esta tiene ${bases.length}.`);
+  const elements = bases[0].elements.map(({ element }: protobuf.ReflectedMessage) => element).filter(Boolean);
+  if (!elements.some((element: protobuf.ReflectedMessage) => element.text)) throw new Error('La diapositiva no tiene cajas de texto.');
+  const copies = new Map<string, string>();
+  for (const element of elements) {
+    for (const url of mediaUrls(element.fill?.media)) {
+      const local = url.local?.path ? (url.local.root === 10 ? showRoots.map(dir => path.join(dir, url.local.path))
+        : LOCAL_ROOTS[url.local.root] !== undefined ? [path.join(homedir(), LOCAL_ROOTS[url.local.root], url.local.path)] : []) : [];
+      const absolute = url.absoluteString?.startsWith('file://') ? [fileURLToPath(url.absoluteString)] : [];
+      const source = [...absolute, ...local].find(candidate => existsSync(candidate));
+      if (!source) throw new Error(`No se encuentra el medio «${path.basename(url.local?.path || url.absoluteString || '?')}». Exporta la plantilla como paquete (.proBundle) desde ProPresenter.`);
+      if (!copies.has(source)) {
+        const target = `${copies.size + 1}${path.extname(source).toLowerCase()}`;
+        await mkdir(stageDir, { recursive: true });
+        await copyFile(source, path.join(stageDir, target));
+        copies.set(source, path.join(mediaDir, target));
+      }
+      url.absoluteString = pathToFileURL(copies.get(source)!).href;
+    }
+  }
+  return Presentation.encode(presentation).finish();
+}
+
+const ALIGN = ['left', 'right', 'center', 'justify'] as const;
+
+/** Plantilla de una slide: [versículo, cita, imagen de fondo]; el primer elemento queda delante. */
+export async function buildTemplate(opts: { name: string; image: { path: string; width: number; height: number }; verse: TemplateBox; reference: TemplateBox }): Promise<Uint8Array> {
+  const root = await loadProtos();
+  const Presentation = root.lookupType('rv.data.Presentation');
+  const presentation = buildPresentation(opts.name, [{ label: opts.name, text: '' }], Presentation);
+  const base = slideAction(presentation.cues[0]).slide.presentation.baseSlide;
+  const sample = base.elements[0];
+  const text = (box: TemplateBox, name: string) => {
+    const [red, green, blue] = [1, 3, 5].map(i => parseInt(box.color.slice(i, i + 2), 16) / 255);
+    const attributes = {
+      font: { name: box.font.postscriptName, family: box.font.family, face: box.font.style, size: box.size },
+      textSolidFill: { red, green, blue, alpha: 1 },
+      paragraphStyle: { alignment: ALIGN.indexOf(box.align), lineHeightMultiple: 1 },
+    };
+    return { ...sample, element: { ...sample.element, uuid: id(), name,
+      bounds: { origin: { x: box.x, y: box.y }, size: { width: box.width, height: box.height } },
+      text: { attributes, verticalAlignment: 1, rtfData: styledRtf('', attributes) } } };
+  };
+  const appSupport = path.join(homedir(), 'Library/Application Support');
+  const url = { absoluteString: pathToFileURL(opts.image.path).href, platform: 1,
+    ...(opts.image.path.startsWith(`${appSupport}/`) ? { local: { root: 8, path: path.relative(appSupport, opts.image.path) } } : {}) };
+  const image = { info: 1, element: { uuid: id(), name: 'Fondo', opacity: 1, locked: true, path: sample.element.path,
+    bounds: { origin: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+    fill: { enable: true, media: { uuid: id(), url, metadata: { format: path.extname(opts.image.path).slice(1).toLowerCase() },
+      image: { drawing: { naturalSize: { width: opts.image.width, height: opts.image.height }, customImageBounds: { origin: {}, size: {} }, cropInsets: {}, alphaType: 1 },
+        file: { localUrl: url } } } } } };
+  // Transparente como un banner de ProPresenter: deja ver la capa de fondo (video, imagen).
+  base.drawsBackgroundColor = false;
+  presentation.background = { isEnabled: false };
+  base.elements = [text(opts.verse, 'Versículo'), text(opts.reference, 'Cita'), image];
+  return Presentation.encode(presentation).finish();
 }
 
 export async function readSlideCount(filePath: string): Promise<number> {
