@@ -10,7 +10,9 @@ Verificado: test 45/45, smoke OK; prueba real de punta a punta: copia empaquetad
 
 Publicado: commits `a2f2a31` (feature) y `aff9e88` (versión 0.2.5); release `v0.2.5` con `pphelper-0.2.5-arm64.dmg` (139 825 314 bytes, digest sha256 `1ba7755f…` = local).
 
-Pendiente: el usuario instala la 0.2.5 a mano una última vez en cada Mac (la 0.2.4 no tiene el actualizador); la primera actualización real desde la app será a la 0.2.6.
+Usuario confirmó: 0.2.5 instalada a mano en su Mac y funciona bien.
+
+Pendiente: instalar la 0.2.5 a mano en las demás Macs (la 0.2.4 no tiene el actualizador); la primera actualización real con «Actualizar ahora» será a la 0.2.6 (confirmar entonces que funciona desde /Applications).
 
 Hechos no obvios:
 - El primer clic en un botón no puede quitar el bloqueo de Gatekeeper de la primera apertura; la descarga hecha por la propia app no lleva cuarentena.
